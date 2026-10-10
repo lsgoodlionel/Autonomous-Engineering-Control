@@ -36,6 +36,12 @@ jobs:
         run: scripts/agent-harness --python tools/agent-harness/drills/run_drills.py
       - name: Scan governed commands
         run: scripts/agent-harness --python tools/agent-harness/drills/run_drills.py --check-forbidden-options
+      - name: Verify exact-head repository environment
+        shell: bash
+        run: |
+          test "$GITHUB_ACTIONS" = true
+          test "$GITHUB_SHA" = "$(git rev-parse HEAD)"
+          test "$GITHUB_REPOSITORY" = "lsgoodlionel/Autonomous-Engineering-Control"
       - name: Check portable host fixture
         run: scripts/agent-harness --python tools/agent-harness/drills/run_drills.py --repo examples/minimal --check-docs
 

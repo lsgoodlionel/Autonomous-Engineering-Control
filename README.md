@@ -51,10 +51,11 @@ scripts/agent-harness finalize --run-id <run-id>
 ## 安全原则
 
 - 配置失败关闭；未知字段、路径逃逸、符号链接逃逸和歧义命令均拒绝。
-- 安装、升级和卸载对原始目标绝对路径逐组件 no-follow；versioned JSON manifest 绑定套件文件的路径、模式、SHA-256 与已登记文件集合，replace/unlink 继续绑定校验时的 descriptor identity。
+- 安装、升级和卸载对原始目标绝对路径逐组件 no-follow，并在每次 root open 复核 repository inode；versioned JSON manifest 绑定套件文件的路径、模式、SHA-256 与已登记文件集合，replace/unlink 通过同父目录 quarantine rename 验证校验时的 descriptor identity 后才发布或删除。
 - Gate 使用参数数组，不把计划、日志或模型输出拼接为 Shell 命令。
 - 同一失败指纹最多自动修复 3 次；单 Milestone 最多 5 个失败周期；连续 2 轮无进展即暂停。
 - HEAD 改变后旧 Gate 证据失效；只有当前 HEAD 的必需 Gate 全部通过才可完成。
+- delivery 同步逐 commit/parent 检查路径历史；repository complete 只接受匹配 expected repository 的 GitHub Actions exact-head 环境证明。
 - 原始日志留在忽略目录；提交材料只包含经过脱敏的最小证据。
 
 安全边界与威胁模型见 [安全模型](docs/security-model.md)，漏洞报告方式见 [SECURITY.md](SECURITY.md)。

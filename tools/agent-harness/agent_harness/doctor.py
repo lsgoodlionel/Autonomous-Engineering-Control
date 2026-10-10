@@ -46,8 +46,9 @@ def _host_references(root):
         if not _regular_path(root, path):
             raise ValueError()
         document = json.loads(path.read_text(encoding="utf-8"))
-        required = {"version", "activePlan", "deliveryManifest", "deliverySyncPaths", "ledger",
-                    "secretPolicy", "fixture", "documentation"}
+        required = {"version", "activePlan", "deliveryManifest", "deliverySyncPaths",
+                    "expectedRepository", "ledger", "secretPolicy", "fixture",
+                    "documentation"}
         fixture = document["fixture"]
         documentation = document["documentation"]
         policy = document["secretPolicy"]
@@ -58,7 +59,9 @@ def _host_references(root):
                 or not isinstance(documentation["statusMarkerPaths"], list)
                 or not isinstance(document["deliverySyncPaths"], list)
                 or not document["deliverySyncPaths"]
-                or len(set(document["deliverySyncPaths"])) != len(document["deliverySyncPaths"])):
+                or len(set(document["deliverySyncPaths"])) != len(document["deliverySyncPaths"])
+                or re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+",
+                                document["expectedRepository"]) is None):
             raise ValueError()
         values = (document["activePlan"], document["deliveryManifest"], document["ledger"],
                   fixture["path"], fixture["planPath"], *documentation["statusMarkerPaths"])

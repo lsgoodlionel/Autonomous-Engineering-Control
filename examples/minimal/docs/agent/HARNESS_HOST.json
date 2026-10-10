@@ -1,6 +1,7 @@
 {
   "activePlan": "docs/superpowers/plans/approved-plan.md",
   "deliveryManifest": "docs/agent/HARNESS_DELIVERY.json",
+  "expectedRepository": "lsgoodlionel/Autonomous-Engineering-Control",
   "deliverySyncPaths": ["AGENTS.md", "docs/agent/AUTONOMY.md", "docs/agent/HARNESS_DELIVERY.json", "docs/agent/PROGRESS.md", "docs/agent/PROJECT_MEMORY.md", "docs/agent/reviews/dx-ci.md", "docs/agent/reviews/security.md", "docs/agent/reviews/whole-branch.md", "docs/superpowers/plans/approved-plan.md"],
   "documentation": {"statusMarkerPaths": ["AGENTS.md", "docs/agent/AUTONOMY.md", "docs/agent/PROJECT_MEMORY.md"]},
   "fixture": {"baseline": "baseline\n", "expected": "baseline\nsmoke-ok\n", "path": "tests/fixtures/real_executor_smoke.txt", "planPath": "docs/superpowers/plans/real-executor-smoke.md"},

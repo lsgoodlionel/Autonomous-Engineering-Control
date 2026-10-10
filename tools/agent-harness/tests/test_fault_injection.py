@@ -882,6 +882,7 @@ class FaultInjectionTests(unittest.TestCase):
                 "version": 1,
                 "activePlan": "docs/superpowers/plans/custom.md",
                 "deliveryManifest": "docs/DELIVERY.json",
+                "expectedRepository": "example/harness-host",
                 "deliverySyncPaths": [
                     ".sdd/progress.md", "AGENTS.md", "README.md", "docs/AUTONOMY.md",
                     "docs/DELIVERY.json", "docs/MEMORY.md",
@@ -947,7 +948,25 @@ class FaultInjectionTests(unittest.TestCase):
                 stage_marker = "<!-- harness-delivery-status: " + status + " -->"
                 for relative in ("README.md", "AGENTS.md", "docs/AUTONOMY.md", "docs/MEMORY.md"):
                     (repo / relative).write_text(stage_marker + "\n", encoding="utf-8")
-                self.runner.check_docs(repo, host)
+                current_head = subprocess.run(
+                    ["git", "rev-parse", "HEAD"], cwd=repo, check=True,
+                    text=True, capture_output=True,
+                ).stdout.strip()
+                with patch.dict(os.environ, {"GITHUB_ACTIONS": "false"}, clear=False):
+                    with self.assertRaises(self.runner.DrillRefused):
+                        self.runner.check_docs(repo, host)
+                trusted_ci = {
+                    "GITHUB_ACTIONS": "true",
+                    "GITHUB_SHA": current_head,
+                    "GITHUB_REPOSITORY": "example/harness-host",
+                }
+                with patch.dict(os.environ, trusted_ci, clear=False):
+                    self.runner.check_docs(repo, host)
+                with patch.dict(os.environ, {**trusted_ci,
+                                              "GITHUB_REPOSITORY": "other/repository"},
+                                clear=False):
+                    with self.assertRaises(self.runner.DrillRefused):
+                        self.runner.check_docs(repo, host)
             untracked = repo / "untracked-review.md"
             untracked.write_text((repo / reports[0]["path"]).read_text(encoding="utf-8"),
                                  encoding="utf-8")
@@ -975,6 +994,13 @@ class FaultInjectionTests(unittest.TestCase):
                            check=True, capture_output=True)
             with self.assertRaises(self.runner.DrillRefused):
                 self.runner.check_docs(repo, host)
+            source.unlink()
+            subprocess.run(["git", "add", "src/product.py"], cwd=repo, check=True,
+                           capture_output=True)
+            subprocess.run(["git", "commit", "-m", "restore product tree"], cwd=repo,
+                           check=True, capture_output=True)
+            with self.assertRaises(self.runner.DrillRefused):
+                self.runner.check_docs(repo, host)
 
     def test_host_config_rejects_source_or_config_delivery_sync_paths(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -984,6 +1010,7 @@ class FaultInjectionTests(unittest.TestCase):
                 "version": 1,
                 "activePlan": "docs/superpowers/plans/active.md",
                 "deliveryManifest": "docs/DELIVERY.json",
+                "expectedRepository": "example/harness-host",
                 "ledger": "docs/progress.md",
                 "secretPolicy": self.secret_policy(),
                 "fixture": {"path": "fixture.txt", "planPath": "docs/superpowers/plans/smoke.md",
@@ -1002,6 +1029,63 @@ class FaultInjectionTests(unittest.TestCase):
                     with self.assertRaises(self.runner.DrillRefused):
                         self.runner.load_host_config(repo, config.relative_to(repo))
 
+    def test_delivery_history_is_nul_safe_and_checks_rename_ends_and_merge_parents(self):
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory).resolve()
+            subprocess.run(["git", "init", "-b", "main"], cwd=repo, check=True,
+                           capture_output=True)
+            subprocess.run(["git", "config", "user.email", "test@example.invalid"],
+                           cwd=repo, check=True, capture_output=True)
+            subprocess.run(["git", "config", "user.name", "Harness Test"], cwd=repo,
+                           check=True, capture_output=True)
+            allowed = repo / "reviews/allowed.md"
+            allowed.parent.mkdir()
+            allowed.write_text("review\n", encoding="utf-8")
+            subprocess.run(["git", "add", "reviews/allowed.md"], cwd=repo, check=True,
+                           capture_output=True)
+            subprocess.run(["git", "commit", "-m", "implementation"], cwd=repo, check=True,
+                           capture_output=True)
+            implementation = subprocess.run(
+                ["git", "rev-parse", "HEAD"], cwd=repo, check=True,
+                text=True, capture_output=True,
+            ).stdout.strip()
+            subprocess.run(["git", "branch", "side"], cwd=repo, check=True,
+                           capture_output=True)
+            forbidden = repo / "src/renamed.py"
+            forbidden.parent.mkdir()
+            subprocess.run(["git", "mv", "reviews/allowed.md", "src/renamed.py"], cwd=repo,
+                           check=True, capture_output=True)
+            newline_path = repo / "src/line\nbreak.py"
+            newline_path.write_text("forbidden\n", encoding="utf-8")
+            subprocess.run(["git", "add", "src"], cwd=repo, check=True,
+                           capture_output=True)
+            subprocess.run(["git", "commit", "-m", "rename and unusual path"], cwd=repo,
+                           check=True, capture_output=True)
+
+            changed = self.runner._delivery_history_paths(repo, implementation)
+
+            self.assertIn(b"reviews/allowed.md", changed)
+            self.assertIn(b"src/renamed.py", changed)
+            self.assertIn(b"src/line\nbreak.py", changed)
+
+            subprocess.run(["git", "checkout", "side"], cwd=repo, check=True,
+                           capture_output=True)
+            side_file = repo / "src/from-side.py"
+            side_file.parent.mkdir(exist_ok=True)
+            side_file.write_text("side\n", encoding="utf-8")
+            subprocess.run(["git", "add", "src/from-side.py"], cwd=repo, check=True,
+                           capture_output=True)
+            subprocess.run(["git", "commit", "-m", "side product change"], cwd=repo,
+                           check=True, capture_output=True)
+            subprocess.run(["git", "checkout", "main"], cwd=repo, check=True,
+                           capture_output=True)
+            subprocess.run(["git", "merge", "--no-ff", "side", "-m", "merge side"],
+                           cwd=repo, check=True, capture_output=True)
+
+            changed = self.runner._delivery_history_paths(repo, implementation)
+
+            self.assertIn(b"src/from-side.py", changed)
+
     def test_host_config_rejects_fixture_plan_outside_authoritative_root(self):
         with tempfile.TemporaryDirectory() as directory:
             repo = Path(directory)
@@ -1011,6 +1095,7 @@ class FaultInjectionTests(unittest.TestCase):
                 "version": 1,
                 "activePlan": "docs/superpowers/plans/active.md",
                 "deliveryManifest": "docs/DELIVERY.json",
+                "expectedRepository": "example/harness-host",
                 "deliverySyncPaths": ["README.md", "docs/DELIVERY.json"],
                 "ledger": "docs/progress.md",
                 "secretPolicy": self.secret_policy(),
@@ -1040,6 +1125,7 @@ class FaultInjectionTests(unittest.TestCase):
                 "version": 1,
                 "activePlan": "docs/superpowers/plans/portable.md",
                 "deliveryManifest": "docs/agent/PORTABLE_DELIVERY.json",
+                "expectedRepository": "example/harness-host",
                 "deliverySyncPaths": [
                     "README.md", "docs/agent/AUTONOMY.md",
                     "docs/agent/PORTABLE_DELIVERY.json", "docs/agent/portable-progress.md",

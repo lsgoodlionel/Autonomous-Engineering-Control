@@ -457,8 +457,9 @@ def load_host_config(repo: Path, relative: Path = _DEFAULT_HOST_CONFIG) -> dict:
     path = _repo_path(root, Path(relative).as_posix())
     try:
         document = json.loads(path.read_text(encoding="utf-8"))
-        required = {"version", "activePlan", "deliveryManifest", "deliverySyncPaths", "ledger",
-                    "secretPolicy", "fixture", "documentation"}
+        required = {"version", "activePlan", "deliveryManifest", "deliverySyncPaths",
+                    "expectedRepository", "ledger", "secretPolicy", "fixture",
+                    "documentation"}
         if set(document) != required or document["version"] != 1:
             raise ValueError()
         policy = document["secretPolicy"]
@@ -471,7 +472,9 @@ def load_host_config(repo: Path, relative: Path = _DEFAULT_HOST_CONFIG) -> dict:
                 or not isinstance(docs.get("statusMarkerPaths"), list)
                 or not isinstance(sync_paths, list) or not sync_paths
                 or not all(isinstance(value, str) and value for value in sync_paths)
-                or len(set(sync_paths)) != len(sync_paths)):
+                or len(set(sync_paths)) != len(sync_paths)
+                or re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+",
+                                document["expectedRepository"]) is None):
             raise ValueError()
         for value in (document["activePlan"], document["deliveryManifest"], document["ledger"],
                       fixture["path"], fixture["planPath"], *docs["statusMarkerPaths"]):
@@ -498,6 +501,43 @@ def load_host_config(repo: Path, relative: Path = _DEFAULT_HOST_CONFIG) -> dict:
     except (KeyError, TypeError, ValueError, OSError, UnicodeError, json.JSONDecodeError):
         raise DrillRefused("invalid Harness host configuration") from None
     return document
+
+
+def _delivery_history_paths(root: Path, implementation_commit: str) -> tuple[bytes, ...]:
+    history = _run(
+        ["git", "rev-list", "--reverse", "--topo-order", "--parents",
+         implementation_commit + "..HEAD"],
+        root,
+        check=False,
+    )
+    if history.returncode:
+        raise ValueError()
+    changed = []
+    for line in history.stdout.splitlines():
+        revisions = line.split()
+        if len(revisions) < 2:
+            raise ValueError()
+        commit, parents = revisions[0], revisions[1:]
+        for parent in parents:
+            diff = subprocess.run(
+                ["git", "diff-tree", "--no-commit-id", "--name-only", "--no-renames",
+                 "-r", "-z", parent, commit, "--"],
+                cwd=root,
+                capture_output=True,
+                check=False,
+            )
+            if diff.returncode:
+                raise ValueError()
+            changed.extend(path for path in diff.stdout.split(b"\0") if path)
+    return tuple(changed)
+
+
+def _validate_repository_attestation(root: Path, host: dict) -> None:
+    head = _git(root, "rev-parse", "HEAD")
+    if (os.environ.get("GITHUB_ACTIONS") != "true"
+            or os.environ.get("GITHUB_SHA") != head
+            or os.environ.get("GITHUB_REPOSITORY") != host["expectedRepository"]):
+        raise ValueError()
 
 
 def _matches(path: str, patterns) -> bool:
@@ -1079,15 +1119,14 @@ def check_docs(repo: Path, host: dict) -> None:
                 raise ValueError()
             ancestor = _run(["git", "merge-base", "--is-ancestor", commit, "HEAD"], root,
                             check=False)
-            changed = _run(
-                ["git", "diff", "--name-only", "--no-renames", "-z", commit + "..HEAD", "--"],
-                root,
-                check=False,
-            )
-            if (ancestor.returncode or changed.returncode
-                    or any(path not in host["deliverySyncPaths"]
-                           for path in changed.stdout.split("\0") if path)):
+            allowed = {os.fsencode(path) for path in host["deliverySyncPaths"]}
+            if (ancestor.returncode
+                    or any(path not in allowed
+                           for path in _delivery_history_paths(root, commit))):
                 raise ValueError()
+            repository_status = external.get("repository", external.get("github"))
+            if repository_status == "complete":
+                _validate_repository_attestation(root, host)
         _validate_review_evidence(root, manifest, not bootstrap and external.get("independentReview") == "complete")
         ledger = ledger_path.read_text(encoding="utf-8")
         for task, steps in manifest["taskSteps"].items():

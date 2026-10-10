@@ -1,6 +1,7 @@
 {
   "activePlan": "docs/superpowers/plans/approved-plan.md",
   "deliveryManifest": "docs/agent/HARNESS_DELIVERY.json",
+  "expectedRepository": "OWNER/REPOSITORY",
   "deliverySyncPaths": [
     "AGENTS.md",
     "docs/agent/AUTONOMY.md",

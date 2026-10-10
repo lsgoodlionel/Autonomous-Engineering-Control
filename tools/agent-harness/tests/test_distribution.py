@@ -158,7 +158,7 @@ class DistributionTests(unittest.TestCase):
         self.assertEqual({entry["path"] for entry in manifest["ownedFiles"]},
                          set(distribution.RUNTIME_FILES))
 
-    def test_upgrade_rejects_regular_file_swap_after_verification_for_replace_and_unlink(self):
+    def test_upgrade_quarantines_and_preserves_regular_file_swapped_at_rename_boundary(self):
         for operation in ("replace", "unlink"):
             with self.subTest(operation=operation):
                 repo = self.repository("host-race-" + operation)
@@ -167,34 +167,127 @@ class DistributionTests(unittest.TestCase):
                 target_relative = ("tools/agent-harness/agent_harness/cli.py" if operation == "replace"
                                    else "tools/agent-harness/agent_harness/doctor.py")
                 target = repo / target_relative
-                real_verify = distribution._verify_owned
+                real_rename = os.rename
                 swapped = False
-                verify_calls = 0
 
-                def verify_then_swap(root, entries):
-                    nonlocal swapped, verify_calls
-                    identities = real_verify(root, entries)
-                    verify_calls += 1
-                    if not swapped and verify_calls == 2:
-                        replacement = target.with_name(target.name + ".replacement")
-                        replacement.write_text("host replacement\n", encoding="utf-8")
-                        replacement.chmod(target.stat().st_mode & 0o777)
-                        os.replace(replacement, target)
+                def swap_at_quarantine_rename(source, destination, *args, **kwargs):
+                    nonlocal swapped
+                    quarantine = (source == target.name
+                                  and str(destination).startswith(
+                                      "." + target.name + ".agent-harness-quarantine-"))
+                    if quarantine and not swapped:
+                        held = target.with_name(target.name + ".owned-before-race")
+                        real_rename(target, held)
+                        target.write_text("host replacement\n", encoding="utf-8")
                         swapped = True
-                    return identities
+                    return real_rename(source, destination, *args, **kwargs)
 
                 inventory = distribution._source_inventory(REPO)
                 if operation == "unlink":
                     inventory = [(entry, content) for entry, content in inventory
                                  if entry["path"] != target_relative]
-                with mock.patch.object(distribution, "_verify_owned", side_effect=verify_then_swap), \
+                with mock.patch.object(distribution.os, "rename",
+                                       side_effect=swap_at_quarantine_rename), \
                         mock.patch.object(distribution, "_source_inventory", return_value=inventory):
-                    with self.assertRaises(distribution.DistributionError):
+                    with self.assertRaises(distribution.DistributionError) as raised:
                         distribution.upgrade(REPO, repo)
 
                 self.assertTrue(swapped)
+                self.assertIn("恢复结果：失败", str(raised.exception))
                 self.assertEqual(target.read_text(encoding="utf-8"), "host replacement\n")
                 self.assertTrue((repo / MANIFEST).is_file())
+
+    def test_validated_repository_root_identity_rejects_directory_replacement(self):
+        repo = self.repository()
+        validated = distribution._validate_repository(str(repo))
+        displaced = self.root / "displaced-host"
+        repo.rename(displaced)
+        repo.mkdir()
+
+        with self.assertRaises(distribution.DistributionError):
+            distribution._write_new(validated, "new-runtime.py", b"owned\n", 0o644)
+
+        self.assertFalse((repo / "new-runtime.py").exists())
+
+    def test_upgrade_preserves_host_file_created_at_publish_boundary(self):
+        repo = self.repository()
+        self.assertEqual(self.run_script("install.sh", repo).returncode, 0)
+        target = repo / "tools/agent-harness/agent_harness/cli.py"
+        real_rename = os.rename
+        real_link = os.link
+        swapped = False
+
+        def attack_before_rename(source, destination, *args, **kwargs):
+            nonlocal swapped
+            publishing = (str(source).startswith("." + target.name + ".agent-harness-temporary-")
+                          and destination == target.name)
+            if publishing and not swapped:
+                target.write_text("host replacement\n", encoding="utf-8")
+                swapped = True
+            return real_rename(source, destination, *args, **kwargs)
+
+        def attack_before_link(source, destination, *args, **kwargs):
+            nonlocal swapped
+            publishing = (str(source).startswith("." + target.name + ".agent-harness-temporary-")
+                          and destination == target.name)
+            if publishing and not swapped:
+                target.write_text("host replacement\n", encoding="utf-8")
+                swapped = True
+            return real_link(source, destination, *args, **kwargs)
+
+        with mock.patch.object(distribution.os, "rename", side_effect=attack_before_rename), \
+                mock.patch.object(distribution.os, "link", side_effect=attack_before_link):
+            with self.assertRaises(distribution.DistributionError) as raised:
+                distribution.upgrade(REPO, repo)
+
+        self.assertTrue(swapped)
+        self.assertIn("恢复结果：失败", str(raised.exception))
+        self.assertEqual(target.read_text(encoding="utf-8"), "host replacement\n")
+
+    def test_upgrade_retains_quarantine_when_original_path_is_reoccupied(self):
+        repo = self.repository()
+        self.assertEqual(self.run_script("install.sh", repo).returncode, 0)
+        target = repo / "tools/agent-harness/agent_harness/cli.py"
+        real_rename = os.rename
+        attacked = False
+
+        def occupy_after_quarantine(source, destination, *args, **kwargs):
+            nonlocal attacked
+            quarantine = (source == target.name
+                          and str(destination).startswith(
+                              "." + target.name + ".agent-harness-quarantine-"))
+            if quarantine and not attacked:
+                held = target.with_name(target.name + ".owned-before-race")
+                real_rename(target, held)
+                target.write_text("first host replacement\n", encoding="utf-8")
+                result = real_rename(source, destination, *args, **kwargs)
+                target.write_text("second host replacement\n", encoding="utf-8")
+                attacked = True
+                return result
+            return real_rename(source, destination, *args, **kwargs)
+
+        with mock.patch.object(distribution.os, "rename", side_effect=occupy_after_quarantine):
+            with self.assertRaises(distribution.DistributionError):
+                distribution.upgrade(REPO, repo)
+
+        self.assertTrue(attacked)
+        self.assertEqual(target.read_text(encoding="utf-8"), "second host replacement\n")
+        quarantines = list(target.parent.glob(
+            "." + target.name + ".agent-harness-quarantine-*"
+        ))
+        self.assertEqual(len(quarantines), 1)
+        self.assertEqual(quarantines[0].read_text(encoding="utf-8"),
+                         "first host replacement\n")
+
+    def test_prune_propagates_validated_root_identity_change(self):
+        repo = self.repository()
+        validated = distribution._validate_repository(str(repo))
+        displaced = self.root / "displaced-before-prune"
+        repo.rename(displaced)
+        repo.mkdir()
+
+        with self.assertRaises(distribution.DistributionError):
+            distribution._prune(validated, ["tools/agent-harness/owned.py"])
 
     def test_manifest_schema_allows_new_version_to_add_and_remove_owned_files(self):
         repo = self.repository()

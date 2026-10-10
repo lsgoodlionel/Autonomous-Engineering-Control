@@ -2,11 +2,13 @@
 
 from datetime import datetime, timezone
 from contextlib import contextmanager
+from dataclasses import dataclass
 import hashlib
 import json
 import os
 from pathlib import Path, PurePosixPath
 import re
+import secrets
 import stat
 import subprocess
 import sys
@@ -80,6 +82,19 @@ class DistributionError(RuntimeError):
         self.exit_code = exit_code
 
 
+class _RootIdentityError(DistributionError):
+    pass
+
+
+@dataclass(frozen=True)
+class _RepositoryRoot:
+    path: Path
+    identity: tuple[int, int]
+
+    def __fspath__(self):
+        return os.fspath(self.path)
+
+
 def _relative(value):
     if (not isinstance(value, str) or not value or "\x00" in value or "\\" in value
             or value != PurePosixPath(value).as_posix()):
@@ -102,13 +117,18 @@ def _absolute_target(value):
 
 
 def _open_directory_nofollow(path):
-    pure = _absolute_target(Path(path).as_posix())
+    expected_identity = path.identity if isinstance(path, _RepositoryRoot) else None
+    raw_path = path.path if isinstance(path, _RepositoryRoot) else Path(path)
+    pure = _absolute_target(raw_path.as_posix())
     descriptor = os.open("/", _DIRECTORY_FLAGS)
     try:
         for part in pure.parts[1:]:
             child = os.open(part, _DIRECTORY_FLAGS, dir_fd=descriptor)
             os.close(descriptor)
             descriptor = child
+        if (expected_identity is not None
+                and _identity(os.fstat(descriptor)) != expected_identity):
+            raise _RootIdentityError("目标仓库根目录身份变化")
         return descriptor
     except Exception:
         os.close(descriptor)
@@ -221,6 +241,7 @@ def _write_to_descriptor(parent, name, content, mode):
         while view:
             view = view[os.write(descriptor, view):]
         os.fsync(descriptor)
+        return _identity(os.fstat(descriptor))
     except Exception:
         try:
             created = os.fstat(descriptor)
@@ -249,37 +270,120 @@ def _write_new(root, relative, content, mode):
         raise DistributionError("无法安全创建套件文件") from error
 
 
-def _replace(root, relative, content, mode, *, expected_identity=None):
-    temporary = "." + _relative(relative).name + ".agent-harness-" + str(os.getpid())
+def _private_name(name, purpose):
+    return ("." + name + ".agent-harness-" + purpose + "-" + str(os.getpid())
+            + "-" + secrets.token_hex(8))
+
+
+def _restore_quarantine(parent, name, quarantine, identity):
     try:
-        with _parent_descriptor(root, relative) as (parent, name):
+        os.link(quarantine, name, src_dir_fd=parent, dst_dir_fd=parent,
+                follow_symlinks=False)
+        restored = os.stat(name, dir_fd=parent, follow_symlinks=False)
+        if not stat.S_ISREG(restored.st_mode) or _identity(restored) != identity:
+            return False
+        os.unlink(quarantine, dir_fd=parent)
+        return True
+    except OSError:
+        return False
+
+
+def _quarantine(parent, name, expected_identity):
+    descriptor = os.open(name, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0), dir_fd=parent)
+    quarantine = _private_name(name, "quarantine")
+    try:
+        metadata = os.fstat(descriptor)
+        if (not stat.S_ISREG(metadata.st_mode)
+                or (expected_identity is not None
+                    and _identity(metadata) != expected_identity)):
+            raise DistributionError("目标文件身份变化")
+        try:
+            os.stat(quarantine, dir_fd=parent, follow_symlinks=False)
+        except FileNotFoundError:
+            pass
+        else:
+            raise DistributionError("升级 quarantine 文件冲突")
+        os.rename(name, quarantine, src_dir_fd=parent, dst_dir_fd=parent)
+        moved = os.stat(quarantine, dir_fd=parent, follow_symlinks=False)
+        if (not stat.S_ISREG(moved.st_mode)
+                or _identity(moved) != _identity(metadata)):
+            moved_identity = _identity(moved)
+            _restore_quarantine(parent, name, quarantine, moved_identity)
+            raise DistributionError("quarantine 后目标文件身份变化")
+        return quarantine, _identity(metadata)
+    finally:
+        os.close(descriptor)
+
+
+def _unlink_quarantine(parent, quarantine, expected_identity):
+    descriptor = os.open(
+        quarantine, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0), dir_fd=parent,
+    )
+    try:
+        metadata = os.fstat(descriptor)
+        current = os.stat(quarantine, dir_fd=parent, follow_symlinks=False)
+        if (not stat.S_ISREG(metadata.st_mode) or not stat.S_ISREG(current.st_mode)
+                or _identity(metadata) != expected_identity
+                or _identity(current) != expected_identity):
+            raise DistributionError("quarantine 文件身份变化")
+        os.unlink(quarantine, dir_fd=parent)
+    finally:
+        os.close(descriptor)
+
+
+def _publish_private(parent, private, name, expected_identity):
+    os.link(private, name, src_dir_fd=parent, dst_dir_fd=parent, follow_symlinks=False)
+    published = os.stat(name, dir_fd=parent, follow_symlinks=False)
+    if not stat.S_ISREG(published.st_mode) or _identity(published) != expected_identity:
+        raise DistributionError("发布时目标文件身份变化")
+    os.unlink(private, dir_fd=parent)
+
+
+def _replace(root, relative, content, mode, *, expected_identity=None):
+    name = _relative(relative).name
+    temporary = _private_name(name, "temporary")
+    try:
+        with _parent_descriptor(root, relative) as (parent, target_name):
             temporary_created = False
+            quarantine = None
+            quarantine_identity = None
+            published = False
             try:
-                target_descriptor = os.open(
-                    name, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0), dir_fd=parent,
+                new_identity = _write_to_descriptor(parent, temporary, content, mode)
+                temporary_created = True
+                quarantine, quarantine_identity = _quarantine(
+                    parent, target_name, expected_identity,
                 )
-                try:
-                    target = os.fstat(target_descriptor)
-                    if (not stat.S_ISREG(target.st_mode)
-                            or (expected_identity is not None
-                                and _identity(target) != expected_identity)):
-                        raise DistributionError("替换前目标文件身份变化")
-                    try:
-                        os.stat(temporary, dir_fd=parent, follow_symlinks=False)
-                    except FileNotFoundError:
-                        pass
+                _publish_private(parent, temporary, target_name, new_identity)
+                temporary_created = False
+                published = True
+                _unlink_quarantine(parent, quarantine, quarantine_identity)
+                quarantine = None
+                return new_identity
+            except Exception:
+                if quarantine is not None:
+                    if published:
+                        try:
+                            published_quarantine, published_identity = _quarantine(
+                                parent, target_name, new_identity,
+                            )
+                        except Exception:
+                            pass
+                        else:
+                            if _restore_quarantine(
+                                    parent, target_name, quarantine, quarantine_identity):
+                                try:
+                                    _unlink_quarantine(
+                                        parent, published_quarantine, published_identity,
+                                    )
+                                except Exception:
+                                    pass
+                                quarantine = None
                     else:
-                        raise DistributionError("升级临时文件冲突")
-                    _write_to_descriptor(parent, temporary, content, mode)
-                    temporary_created = True
-                    current = os.stat(name, dir_fd=parent, follow_symlinks=False)
-                    if (stat.S_ISLNK(current.st_mode) or not stat.S_ISREG(current.st_mode)
-                            or _identity(current) != _identity(target)):
-                        raise DistributionError("替换前目标文件身份变化")
-                    os.replace(temporary, name, src_dir_fd=parent, dst_dir_fd=parent)
-                    temporary_created = False
-                finally:
-                    os.close(target_descriptor)
+                        if _restore_quarantine(
+                                parent, target_name, quarantine, quarantine_identity):
+                            quarantine = None
+                raise
             finally:
                 if temporary_created:
                     try:
@@ -290,25 +394,21 @@ def _replace(root, relative, content, mode, *, expected_identity=None):
         raise DistributionError("套件拥有文件缺失") from error
     except OSError as error:
         raise DistributionError("无法原子替换套件文件") from error
-    return _file_identity(root, relative)
 
 
 def _unlink(root, relative, *, expected_identity=None):
     try:
         with _parent_descriptor(root, relative) as (parent, name):
-            descriptor = os.open(name, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0), dir_fd=parent)
+            quarantine = None
+            quarantine_identity = None
             try:
-                metadata = os.fstat(descriptor)
-                current = os.stat(name, dir_fd=parent, follow_symlinks=False)
-                if (not stat.S_ISREG(metadata.st_mode) or stat.S_ISLNK(current.st_mode)
-                        or not stat.S_ISREG(current.st_mode)
-                        or _identity(current) != _identity(metadata)
-                        or (expected_identity is not None
-                            and _identity(metadata) != expected_identity)):
-                    raise DistributionError("删除前目标文件身份变化")
-                os.unlink(name, dir_fd=parent)
-            finally:
-                os.close(descriptor)
+                quarantine, quarantine_identity = _quarantine(parent, name, expected_identity)
+                _unlink_quarantine(parent, quarantine, quarantine_identity)
+                quarantine = None
+            except Exception:
+                if quarantine is not None:
+                    _restore_quarantine(parent, name, quarantine, quarantine_identity)
+                raise
     except FileNotFoundError as error:
         raise DistributionError("套件拥有文件缺失") from error
     except OSError as error:
@@ -365,7 +465,7 @@ def _validate_repository(target):
         if isinstance(error, DistributionError):
             raise
         raise DistributionError("目标仓库身份无效", 2) from error
-    return root
+    return _RepositoryRoot(root, original_identity)
 
 
 def _manifest_bytes(version, owned, seeded):
@@ -507,6 +607,8 @@ def _prune(root, paths):
                     if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISDIR(metadata.st_mode):
                         break
                     os.rmdir(name, dir_fd=parent)
+            except _RootIdentityError:
+                raise
             except (DistributionError, FileNotFoundError, OSError):
                 break
             directory = directory.parent
@@ -606,7 +708,7 @@ def upgrade(source, target):
         result = "成功" if restored else "失败"
         raise DistributionError(f"升级失败；备份位置：{backup}；恢复结果：{result}") from None
     _prune(root, old.keys() - new.keys())
-    print(f"Upgraded control plane to {version}; backup: {root / backup}")
+    print(f"Upgraded control plane to {version}; backup: {root.path / backup}")
 
 
 def uninstall(target):

@@ -9,6 +9,7 @@
 - 固定 digest 的 Linux wrapper 集成测试零 skip。
 - portable install、`doctor`、fake drill 和 uninstall smoke 通过。
 - workflow 危险参数扫描、文档引用、`git diff --check` 和秘密扫描通过。
+- repository complete 由匹配 `expectedRepository` 的 GitHub Actions 在 `GITHUB_SHA == HEAD` 时验证；本地自报或手填环境输出不是发布证据。
 - 发布包内容检查证明不含宿主状态、运行证据、缓存或秘密。
 - 仓库所有者已选择许可证并创建 `LICENSE`；在此之前不得正式公开发布。
 

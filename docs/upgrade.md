@@ -23,7 +23,9 @@
 
 从提交 `4727ca9` 安装的 `0.1.0` 套件使用纯文本 `.agent-harness-install`。升级器只在 marker 内容、历史 owned-file set、每个文件的 SHA-256 和模式都与已登记 baseline 一致时迁移；成功后进入 versioned JSON manifest，漂移时保留旧套件并拒绝迁移。新 format 可以登记不同的 owned-file set，因此合法新增和删除由版本化 schema 决定，而不是拿旧 manifest 与当前常量直接比较。
 
-校验得到的 `(st_dev, st_ino)` 会贯穿后续 replace/unlink；如果普通文件在校验后被换入，事务拒绝覆盖或删除该 inode，回滚也不会覆盖外部换入文件。目标仓库的原始绝对路径会逐组件 no-follow，不能通过 repository root 或祖先 symlink 隐藏真实路径。
+校验得到的 repository root `(st_dev, st_ino)` 会随 validated root 贯穿全部读写、备份与回滚；每次打开 root 都必须匹配，路径上的目录被普通目录替换也会失败关闭。目标仓库的原始绝对路径仍逐组件 no-follow，不能通过 repository root 或祖先 symlink 隐藏真实路径。
+
+owned file 的 checksum/mode 与 `(st_dev, st_ino)` 会贯穿 replace/unlink。操作先在同一 parent descriptor 下将当前目录项 rename 到随机 quarantine，再验证被移动 inode；匹配后才以 no-clobber hard link 发布临时文件或删除 quarantine。若 syscall 边界发生普通文件换入，升级器会把 host replacement 安全恢复到原路径，无法恢复时保留 quarantine 并报错；事务回滚也不会覆盖或删除该 replacement。
 
 ## 兼容性
 

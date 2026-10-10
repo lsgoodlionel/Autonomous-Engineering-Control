@@ -54,7 +54,7 @@ HEAD、工作区和工具环境。审批路径、真实秘密、依赖新增、�
 - `docs/agent/PROTECTED_PATHS.yaml`：`deny/approval_required/review_required/generated` 路径策略。
 - `docs/agent/STATE_SCHEMA.json`：持久化 wire contract。
 - `docs/agent/PROJECT_MEMORY.md`：宿主项目稳定事实，不保存临时运行状态。
-- `docs/agent/HARNESS_HOST.json`：active plan、secret policy、fixture scope、宿主文档与交付 manifest 路径。
+- `docs/agent/HARNESS_HOST.json`：active plan、expected GitHub repository、secret policy、fixture scope、宿主文档与交付 manifest 路径。
 - `docs/agent/HARNESS_DELIVERY.json`：计划 checkbox、ledger、implementation commit、验证证据和外部同步状态的唯一清单。
 - `docs/superpowers/plans/`：已经人工确认、包含唯一 Milestone 与明确文件范围的计划。
 
@@ -63,8 +63,10 @@ HEAD、工作区和工具环境。审批路径、真实秘密、依赖新增、�
 原始运行目录必须是被 Git 忽略且未跟踪的 `var/agent-harness/runs/<UUID>/`。
 
 `HARNESS_HOST.json.deliverySyncPaths` 使用精确仓库相对路径，不支持 glob；它只容纳计划、delivery manifest、
-ledger、状态文档和预先约定的 Markdown 审查报告。`check_docs` 验证 implementation commit 是 `HEAD` 祖先，并拒绝
-该提交之后出现任何源码、配置或未列路径。exact-head CI 证据必须等实际推送后再记录。
+ledger、状态文档和预先约定的 Markdown 审查报告。`check_docs` 验证 implementation commit 是 `HEAD` 祖先，并以
+NUL-safe 输出逐 commit、逐 parent 检查 rename 两端，拒绝该提交之后曾出现的任何源码、配置或未列路径，即使最终树已恢复。
+repository complete 还要求 GitHub Actions 原生 `GITHUB_SHA` 精确等于 `HEAD` 且 `GITHUB_REPOSITORY` 匹配
+`expectedRepository`；本地失败关闭，不使用令牌或网络。
 
 ## 宿主集成
 

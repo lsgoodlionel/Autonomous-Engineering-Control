@@ -6,13 +6,13 @@
 2. 在 `PROJECT_MEMORY.md` 记录稳定且可重新核验的项目事实。
 3. 在 `GATE_MATRIX.yaml` 登记现有测试命令，再按路径 profile 组合 Gate。
 4. 在 `PROTECTED_PATHS.yaml` 先覆盖控制平面、秘密、依赖、迁移、生产和生成文件。
-5. 配置 `HARNESS_HOST.json` 的计划、交付清单、严格 `deliverySyncPaths`、ledger、fixture 和文档标记路径。
+5. 配置 `HARNESS_HOST.json` 的计划、交付清单、严格 `deliverySyncPaths`、`expectedRepository`、ledger、fixture 和文档标记路径。
 6. 创建批准计划，明确单个 Milestone 的文件范围、验收门和人工边界。
 7. 在独立 worktree 中运行 `doctor`、测试和 fake drills。
 
 默认 delivery manifest 使用 `not_started`、空报告和固定 reviewer 列表 `security`、`dx_ci`、`whole_branch`。对应状态文档带同值 marker，因此初始模板可以直接通过 `--check-docs`；产生实现提交后再按交付状态机更新证据和 marker。
 
-`deliverySyncPaths` 必须在实现证据建立前确定，只列 active plan、delivery manifest、ledger、状态文档和预定的 Markdown review 文件，且全部使用精确仓库相对路径。实现提交后的文档与审查同步可继续推进；一旦 `implementationCommit..HEAD` 出现源码、配置或其他未列路径，旧 delivery evidence 立即失效。远端 exact-head 证据只能在推送后由 CI 补充。
+`deliverySyncPaths` 必须在实现证据建立前确定，只列 active plan、delivery manifest、ledger、状态文档和预定的 Markdown review 文件，且全部使用精确仓库相对路径。实现提交后的文档与审查同步可继续推进；检查会遍历每个 descendant commit 的每个 parent，并按 NUL 分隔结果检查 rename 两端，所以禁止路径不能通过后续恢复或 merge 隐藏。`expectedRepository` 绑定 GitHub `OWNER/REPOSITORY`；repository complete 只能在 GitHub Actions 原生环境中以当前 `HEAD`、`GITHUB_SHA` 和 `GITHUB_REPOSITORY` 精确一致来证明，本地检查失败关闭且不需要令牌或网络。
 
 ## Gate 设计
 
@@ -61,4 +61,4 @@ Python Gate 应通过 `scripts/agent-harness --python` 进入受控运行时。N
 5. 路径越界、计划漂移和重复失败会暂停。
 6. 卸载只删除套件拥有文件，保留宿主配置与运行历史备份。
 
-`doctor` 会读取 `HARNESS_HOST.json` 并逐项验证 active plan、delivery manifest、ledger、fixture 文件、fixture plan 和状态文档均存在、位于仓库内且不是 symlink；只复制配置而漏掉计划或 fixture 不会通过。
+`doctor` 会读取 `HARNESS_HOST.json` 并逐项验证 expected repository、active plan、delivery manifest、ledger、fixture 文件、fixture plan 和状态文档均存在、位于仓库内且不是 symlink；只复制配置而漏掉计划或 fixture 不会通过。

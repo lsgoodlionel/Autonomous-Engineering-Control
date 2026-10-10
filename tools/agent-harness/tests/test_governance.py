@@ -47,6 +47,16 @@ class GovernanceWorkflowTests(unittest.TestCase):
         self.assertIn("python-version: ${{ matrix.python }}", self.text)
         self.assertIn("--check-docs", self.text)
 
+    def test_workflow_verifies_native_exact_head_repository_attestation(self):
+        self.assertIn('test "$GITHUB_ACTIONS" = true', self.text)
+        self.assertIn('test "$GITHUB_SHA" = "$(git rev-parse HEAD)"', self.text)
+        self.assertIn('test "$GITHUB_REPOSITORY" = "lsgoodlionel/Autonomous-Engineering-Control"',
+                      self.text)
+        self.assertNotRegex(
+            self.text,
+            r"(?m)^\s+(?:GITHUB_ACTIONS|GITHUB_SHA|GITHUB_REPOSITORY):\s*",
+        )
+
     def test_macos_python_policy_uses_hosted_toolcache_not_homebrew(self):
         wrapper = (REPO / "scripts/agent-harness").read_text(encoding="utf-8")
         self.assertIn("/Users/runner/hostedtoolcache/Python", wrapper)

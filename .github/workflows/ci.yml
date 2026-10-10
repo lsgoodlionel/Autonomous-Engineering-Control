@@ -72,14 +72,14 @@ jobs:
       contents: read
       id-token: write
       attestations: write
-    env:
-      ATTESTATION_SUBJECT: ${{ runner.temp }}/autonomous-engineering-control.tar
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           fetch-depth: 0
       - name: Build exact-head subject
         shell: bash
+        env:
+          ATTESTATION_SUBJECT: ${{ runner.temp }}/autonomous-engineering-control.tar
         run: |
           test "$GITHUB_SHA" = "$(git rev-parse HEAD)"
           test "$GITHUB_REPOSITORY" = "lsgoodlionel/Autonomous-Engineering-Control"
@@ -87,10 +87,11 @@ jobs:
       - name: Sign exact-head subject provenance
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
-          subject-path: ${{ env.ATTESTATION_SUBJECT }}
+          subject-path: ${{ runner.temp }}/autonomous-engineering-control.tar
       - name: Verify signed exact-head provenance
         env:
           GH_TOKEN: ${{ github.token }}
+          ATTESTATION_SUBJECT: ${{ runner.temp }}/autonomous-engineering-control.tar
         shell: bash
         run: >-
           gh attestation verify "$ATTESTATION_SUBJECT"

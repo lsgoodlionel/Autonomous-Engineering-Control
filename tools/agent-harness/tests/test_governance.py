@@ -71,6 +71,16 @@ class GovernanceWorkflowTests(unittest.TestCase):
         self.assertNotIn("repositoryStatus", attestation_job)
         self.assertNotIn("DELIVERY.json", attestation_job)
 
+    def test_attestation_temp_path_uses_only_step_valid_runner_contexts(self):
+        attestation_job = self.text.split("  attest-exact-head:", 1)[1]
+        job_header, steps = attestation_job.split("    steps:", 1)
+        subject = "${{ runner.temp }}/autonomous-engineering-control.tar"
+
+        self.assertNotIn("ATTESTATION_SUBJECT", job_header)
+        self.assertIn("subject-path: " + subject, steps)
+        self.assertNotIn("${{ env.ATTESTATION_SUBJECT }}", steps)
+        self.assertEqual(steps.count("ATTESTATION_SUBJECT: " + subject), 2)
+
     def test_macos_python_policy_uses_hosted_toolcache_not_homebrew(self):
         wrapper = (REPO / "scripts/agent-harness").read_text(encoding="utf-8")
         self.assertIn("/Users/runner/hostedtoolcache/Python", wrapper)

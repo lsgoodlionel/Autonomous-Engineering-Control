@@ -1,6 +1,7 @@
 """Standalone repository governance and distribution contracts."""
 
 from pathlib import Path
+import json
 import os
 import re
 import subprocess
@@ -41,9 +42,15 @@ class GovernanceWorkflowTests(unittest.TestCase):
         self.assertIn("--include-substring linux_wrapper --fail-on-skip --ci", self.text)
         self.assertIn("--linux-image " + image, self.text)
         self.assertIn("--docker /usr/bin/docker", self.text)
-        harden = ('chmod go-w /opt/hostedtoolcache/Python "${pythonLocation%/*}" '
-                  '"$pythonLocation" "$pythonLocation/bin" "$pythonLocation/bin/python3.11"')
-        self.assertEqual(self.text.count(harden), 2)
+        self.assertIn("os: [ubuntu-24.04, macos-14]", self.text)
+        self.assertIn("python: ['3.11', '3.12', '3.13', '3.14']", self.text)
+        self.assertIn("python-version: ${{ matrix.python }}", self.text)
+        self.assertIn("--check-docs", self.text)
+
+    def test_macos_python_policy_uses_hosted_toolcache_not_homebrew(self):
+        wrapper = (REPO / "scripts/agent-harness").read_text(encoding="utf-8")
+        self.assertIn("/Users/runner/hostedtoolcache/Python", wrapper)
+        self.assertNotIn("/opt/homebrew", wrapper)
 
     def test_workflow_has_no_delivery_side_effects(self):
         for pattern in (r"\bgit\s+push\b", r"\bgh\s+release\b", r"\bdeploy(?:ment)?\b",
@@ -86,6 +93,14 @@ class DistributionTests(unittest.TestCase):
             host.mkdir()
             subprocess.run(["git", "init", "-b", "main"], cwd=host,
                            capture_output=True, check=True)
+            subprocess.run(["git", "config", "user.email", "harness@example.invalid"],
+                           cwd=host, capture_output=True, check=True)
+            subprocess.run(["git", "config", "user.name", "Harness Test"],
+                           cwd=host, capture_output=True, check=True)
+            (host / "host.txt").write_text("host\n", encoding="utf-8")
+            subprocess.run(["git", "add", "host.txt"], cwd=host, capture_output=True, check=True)
+            subprocess.run(["git", "commit", "-m", "host fixture"], cwd=host,
+                           capture_output=True, check=True)
             policy = host / "docs/agent/PROJECT_MEMORY.md"
             policy.parent.mkdir(parents=True)
             policy.write_text("host-owned\n", encoding="utf-8")
@@ -96,7 +111,7 @@ class DistributionTests(unittest.TestCase):
             installed = self.run_script("install.sh", host)
             self.assertEqual(installed.returncode, 0, installed.stderr)
             self.assertTrue((host / "scripts/agent-harness").is_file())
-            self.assertTrue((host / ".agent-harness-install").is_file())
+            self.assertTrue((host / ".agent-harness-install.json").is_file())
             self.assertEqual(policy.read_text(), "host-owned\n")
 
             duplicate = self.run_script("install.sh", host)
@@ -108,7 +123,7 @@ class DistributionTests(unittest.TestCase):
             removed = self.run_script("uninstall.sh", host)
             self.assertEqual(removed.returncode, 0, removed.stderr)
             self.assertFalse((host / "scripts/agent-harness").exists())
-            self.assertFalse((host / ".agent-harness-install").exists())
+            self.assertFalse((host / ".agent-harness-install.json").exists())
             self.assertEqual(policy.read_text(), "host-owned\n")
             self.assertEqual(history.read_text(), "evidence\n")
 
@@ -122,6 +137,49 @@ class DistributionTests(unittest.TestCase):
             for path in files:
                 if path.is_file() and path.suffix in ("", ".py", ".json", ".md", ".sh"):
                     self.assertIsNone(forbidden.search(path.read_text(encoding="utf-8")), path)
+
+    def test_portable_templates_start_in_a_checkable_pending_state(self):
+        for base in (REPO / "templates/host", REPO / "examples/minimal"):
+            with self.subTest(base=base):
+                delivery = json.loads((base / "docs/agent/HARNESS_DELIVERY.json").read_text())
+                self.assertEqual(delivery["deliveryStatus"], "not_started")
+                self.assertEqual(delivery["reviewEvidence"]["requiredReviewers"],
+                                 ["security", "dx_ci", "whole_branch"])
+                self.assertEqual(delivery["reviewEvidence"]["reports"], [])
+                for relative in ("AGENTS.md", "docs/agent/AUTONOMY.md",
+                                 "docs/agent/PROJECT_MEMORY.md"):
+                    self.assertIn("<!-- harness-delivery-status: not_started -->",
+                                  (base / relative).read_text())
+
+    def test_minimal_portable_fixture_passes_real_docs_check(self):
+        result = subprocess.run([
+            str(REPO / "scripts/agent-harness"), "--python",
+            "tools/agent-harness/drills/run_drills.py",
+            "--repo", "examples/minimal", "--check-docs",
+        ], cwd=REPO, text=True, capture_output=True, check=False)
+        self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
+        self.assertEqual(result.stdout.strip(), "PASS plan-memory-drift")
+
+    def test_minimal_example_baseline_is_an_intentional_red_fixture(self):
+        result = subprocess.run(
+            [sys.executable, "-m", "unittest", "discover", "-s", "tests", "-v"],
+            cwd=REPO / "examples/minimal", text=True, capture_output=True, check=False,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("'ready'", result.stderr)
+
+    def test_portable_protected_paths_cover_root_dependency_and_migration_files(self):
+        required = {"migrations/**", "*.lock", "package-lock.json", "pnpm-lock.yaml", "yarn.lock"}
+        for base in (REPO / "templates/host", REPO / "examples/minimal"):
+            with self.subTest(base=base):
+                document = json.loads((base / "docs/agent/PROTECTED_PATHS.yaml").read_text())
+                patterns = {pattern for rule in document["rules"] for pattern in rule["patterns"]
+                            if rule["action"] == "approval_required"}
+                self.assertTrue(required <= patterns, required - patterns)
+
+    def test_generic_state_fixture_contains_no_host_project_name(self):
+        fixture = REPO / "tools/agent-harness/tests/fixtures/valid_state.json"
+        self.assertNotIn("survey", fixture.read_text(encoding="utf-8").lower())
 
 
 if __name__ == "__main__":

@@ -9,7 +9,7 @@
     },
     {
       "id": "automation-and-distribution",
-      "patterns": [".github/workflows/**", "install.sh", "upgrade.sh", "uninstall.sh", "scripts/agent-harness", "tools/agent-harness/agent_harness/codex_adapter.py"],
+      "patterns": [".github/workflows/**", "install.sh", "upgrade.sh", "uninstall.sh", "scripts/agent-harness", "tools/agent-harness/agent_harness/**"],
       "operations": ["add", "modify", "delete"],
       "action": "approval_required"
     },

@@ -3,7 +3,7 @@
   "runId": "12345678-1234-4234-8234-123456789abc",
   "planPath": "docs/superpowers/plans/approved.md",
   "planSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-  "worktreePath": "/tmp/survey-worktree",
+  "worktreePath": "/tmp/harness-worktree",
   "branch": "feat/task-2",
   "baseCommit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
   "headCommit": "cccccccccccccccccccccccccccccccccccccccc",

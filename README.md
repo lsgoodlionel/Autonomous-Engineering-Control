@@ -14,15 +14,15 @@
 
 ## 环境要求
 
-- Git，并在非主检出目录的独立 Git worktree 中运行自治任务。
-- Python 3.11、3.12、3.13 或 3.14；核心仅依赖 Python 标准库。
+- Git；安装接受已有提交的主检出目录或 linked worktree，自治任务只在独立 linked worktree 中运行。
+- Python 3.11、3.12、3.13 或 3.14；Ubuntu 与 macOS 的版本矩阵由 CI 验证，核心仅依赖 Python 标准库。
 - 宿主 Gate 所需的其他工具由宿主自行安装、锁定和验证。
 - 自动执行器为可选能力；未安装、未认证或权限不足时应安全暂停。
 
 ## 快速接入
 
 1. 阅读 [架构与边界](docs/architecture.md) 和 [安装指南](docs/install.md)。
-2. 将 `templates/host/` 中的模板复制到目标仓库，并按 [宿主接入](docs/host-integration.md) 完成替换。
+2. 运行 `./install.sh <目标仓库>`；安装器只补充缺失宿主模板，不覆盖已有宿主文件，并按 [宿主接入](docs/host-integration.md) 完成替换。
 3. 为运行目录加入忽略规则：`/var/agent-harness/`。
 4. 在独立 worktree 中执行环境检查：
 
@@ -51,6 +51,7 @@ scripts/agent-harness finalize --run-id <run-id>
 ## 安全原则
 
 - 配置失败关闭；未知字段、路径逃逸、符号链接逃逸和歧义命令均拒绝。
+- 安装、升级和卸载逐级拒绝目标路径 symlink；JSON manifest 绑定套件文件的路径、模式与 SHA-256，卸载不会按目录猜测归属。
 - Gate 使用参数数组，不把计划、日志或模型输出拼接为 Shell 命令。
 - 同一失败指纹最多自动修复 3 次；单 Milestone 最多 5 个失败周期；连续 2 轮无进展即暂停。
 - HEAD 改变后旧 Gate 证据失效；只有当前 HEAD 的必需 Gate 全部通过才可完成。

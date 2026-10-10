@@ -14,7 +14,7 @@
   "planPath": "docs/superpowers/plans/approved-plan.md",
   "reviewEvidence": {
     "reports": [],
-    "requiredReviewers": []
+    "requiredReviewers": ["security", "dx_ci", "whole_branch"]
   },
   "taskSteps": {},
   "version": 1

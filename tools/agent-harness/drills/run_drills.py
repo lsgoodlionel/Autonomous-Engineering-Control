@@ -1021,13 +1021,6 @@ def check_docs(repo: Path, host: dict) -> None:
             raise ValueError()
         commit = manifest["implementationCommit"]
         evidence = manifest["evidence"]
-        if (re.fullmatch(r"[0-9a-f]{40}", commit) is None
-                or evidence.get("headCommit") != commit or evidence.get("status") != "passed"
-                or not evidence.get("commands")):
-            raise ValueError()
-        commit_check = _run(["git", "cat-file", "-e", commit + "^{commit}"], root, check=False)
-        if commit_check.returncode:
-            raise ValueError()
         if _plan_checkboxes(plan_path.read_text(encoding="utf-8")) != manifest["taskSteps"]:
             raise ValueError()
         external = manifest["externalSync"]
@@ -1052,9 +1045,20 @@ def check_docs(repo: Path, host: dict) -> None:
             expected_status = legacy_status.get(key)
         else:
             raise ValueError()
-        if expected_status != manifest["deliveryStatus"]:
-            raise ValueError()
-        _validate_review_evidence(root, manifest, external.get("independentReview") == "complete")
+        bootstrap = manifest["deliveryStatus"] == "not_started"
+        if bootstrap:
+            if (commit is not None or evidence != {"commands": [], "headCommit": None, "status": "pending"}
+                    or key != ("pending", "pending", "pending") or manifest["taskSteps"]):
+                raise ValueError()
+        else:
+            if (re.fullmatch(r"[0-9a-f]{40}", commit) is None
+                    or evidence.get("headCommit") != commit or evidence.get("status") != "passed"
+                    or not evidence.get("commands") or expected_status != manifest["deliveryStatus"]):
+                raise ValueError()
+            commit_check = _run(["git", "cat-file", "-e", commit + "^{commit}"], root, check=False)
+            if commit_check.returncode:
+                raise ValueError()
+        _validate_review_evidence(root, manifest, not bootstrap and external.get("independentReview") == "complete")
         ledger = ledger_path.read_text(encoding="utf-8")
         for task, steps in manifest["taskSteps"].items():
             if not task.isdigit():

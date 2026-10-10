@@ -84,6 +84,19 @@ class DoctorTests(unittest.TestCase):
 class DoctorTrustTests(WorktreeCase):
     def setUp(self):
         super().setUp()
+        template = Path(__file__).resolve().parents[3] / "templates/host"
+        for relative in (
+            "AGENTS.md",
+            "docs/agent/AUTONOMY.md",
+            "docs/agent/PROJECT_MEMORY.md",
+            "docs/agent/HARNESS_HOST.json",
+            "docs/agent/HARNESS_DELIVERY.json",
+            "docs/agent/PROGRESS.md",
+            "docs/superpowers/plans/approved-plan.md",
+            "docs/superpowers/plans/real-executor-smoke.md",
+            "tests/fixtures/real_executor_smoke.txt",
+        ):
+            self.write(self.repo / relative, (template / relative).read_text())
         source = Path(__file__).resolve().parents[3] / "scripts/agent-harness"
         self.wrapper = self.repo / "scripts/agent-harness"
         self.write(self.wrapper, source.read_text())
@@ -199,4 +212,35 @@ class DoctorTrustTests(WorktreeCase):
         except RuntimeError:
             self.fail("doctor must reject cyclic Gate cwd with a typed report")
         self.assertTrue(report.error)
+        self.assertEqual(probes, [])
+
+    def test_host_config_requires_every_active_delivery_ledger_and_fixture_reference(self):
+        host = json.loads((self.repo / "docs/agent/HARNESS_HOST.json").read_text())
+        references = (
+            host["activePlan"], host["deliveryManifest"], host["ledger"],
+            host["fixture"]["path"], host["fixture"]["planPath"],
+        )
+        for relative in references:
+            with self.subTest(relative=relative):
+                path = self.repo / relative
+                original = path.read_bytes()
+                path.unlink()
+                report, probes = self.doctor_calls()
+                self.assertTrue(any(check["id"] == "host:" + relative
+                                    for check in report.error), report.to_dict())
+                self.assertEqual(probes, [])
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(original)
+
+    def test_host_config_rejects_symlinked_reference(self):
+        plan = self.repo / "docs/superpowers/plans/approved-plan.md"
+        original = plan.read_bytes()
+        alternate = self.repo / "docs/superpowers/plans/alternate.md"
+        alternate.write_bytes(original)
+        plan.unlink()
+        plan.symlink_to(alternate.name)
+
+        report, probes = self.doctor_calls()
+
+        self.assertTrue(any(check["id"].startswith("host:") for check in report.error))
         self.assertEqual(probes, [])

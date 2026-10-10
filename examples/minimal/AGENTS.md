@@ -1,5 +1,7 @@
 # 最小示例协作规则
 
+<!-- harness-delivery-status: not_started -->
+
 - 只处理已批准计划中的单个 Milestone。
 - 使用独立 Git worktree 与 Python 3.11-3.14。
 - 先写失败测试，再做最小实现并运行全部必需 Gate。

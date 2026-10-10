@@ -1,21 +1,22 @@
 # 卸载指南
 
-当前仓库尚未提供稳定版自动卸载脚本。卸载必须区分套件拥有文件、宿主策略和运行证据。
+仓库提供基于 ownership manifest 的 `uninstall.sh`。卸载严格区分套件拥有文件、宿主策略和运行证据。
 
 ## 卸载前
 
 1. 暂停所有运行并确认没有执行器、Gate 或子进程仍在工作。
 2. 记录套件版本、当前分支、HEAD、未完成 Milestone 和恢复责任人。
 3. 按组织策略备份 `var/agent-harness/`，其中可能含敏感日志，不应提交。
-4. 确认哪些文件由安装清单拥有，禁止按目录名称猜测并批量删除。
+4. 使用与安装版本兼容的套件运行 `./uninstall.sh <目标仓库>`；禁止手工按目录名称猜测并批量删除。
 
 ## 文件归属
 
-通常可删除的套件核心：
+manifest 可以删除的套件核心：
 
 - `scripts/agent-harness`
-- `tools/agent-harness/`
-- 套件专用且无其他职责的 CI workflow
+- `tools/agent-harness/agent_harness/`、`tools/agent-harness/drills/` 与 `tools/agent-harness/run_tests.py`
+
+卸载在发生任何删除前验证全部 owned entry 的安全相对路径、普通文件类型、模式和 SHA-256。任一文件缺失、被修改或任一路径组件为 symlink 时整体拒绝；成功后只删除逐项验证过的文件和 manifest，并只清理空目录。
 
 默认保留：
 
@@ -23,6 +24,7 @@
 - `docs/agent/` 中的项目规则、记忆和交付记录
 - 已批准计划、审查报告和按保留策略保存的运行历史
 - 宿主新增的测试、业务代码与 `.gitignore` 其他规则
+- 安装器 seed 的宿主计划、delivery、ledger、fixture 和状态文档
 
 ## 验证
 

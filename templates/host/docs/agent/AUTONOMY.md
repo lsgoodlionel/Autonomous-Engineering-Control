@@ -1,5 +1,7 @@
 # 自治工程 SOP
 
+<!-- harness-delivery-status: not_started -->
+
 ## 准入
 
 1. 验证 Git 仓库、独立 worktree、分支、HEAD 和工作区归属。

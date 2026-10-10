@@ -2,13 +2,15 @@
 
 ## 接入顺序
 
-1. 复制 `templates/host/`。
+1. 运行 `install.sh` seed 缺失的 `templates/host/` 内容，或人工逐文件复制；不得覆盖已有宿主文件。
 2. 在 `PROJECT_MEMORY.md` 记录稳定且可重新核验的项目事实。
 3. 在 `GATE_MATRIX.yaml` 登记现有测试命令，再按路径 profile 组合 Gate。
 4. 在 `PROTECTED_PATHS.yaml` 先覆盖控制平面、秘密、依赖、迁移、生产和生成文件。
 5. 配置 `HARNESS_HOST.json` 的计划、交付清单、ledger、fixture 和文档标记路径。
 6. 创建批准计划，明确单个 Milestone 的文件范围、验收门和人工边界。
 7. 在独立 worktree 中运行 `doctor`、测试和 fake drills。
+
+默认 delivery manifest 使用 `not_started`、空报告和固定 reviewer 列表 `security`、`dx_ci`、`whole_branch`。对应状态文档带同值 marker，因此初始模板可以直接通过 `--check-docs`；产生实现提交后再按交付状态机更新证据和 marker。
 
 ## Gate 设计
 
@@ -56,3 +58,5 @@ Python Gate 应通过 `scripts/agent-harness --python` 进入受控运行时。N
 4. Gate 证据绑定当前 HEAD。
 5. 路径越界、计划漂移和重复失败会暂停。
 6. 卸载只删除套件拥有文件，保留宿主配置与运行历史备份。
+
+`doctor` 会读取 `HARNESS_HOST.json` 并逐项验证 active plan、delivery manifest、ledger、fixture 文件、fixture plan 和状态文档均存在、位于仓库内且不是 symlink；只复制配置而漏掉计划或 fixture 不会通过。

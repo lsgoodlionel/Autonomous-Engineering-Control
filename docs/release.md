@@ -5,7 +5,7 @@
 正式 Release 必须满足：
 
 - 从干净、已审查、锁定的 commit 构建。
-- 完整单元测试在 Python 3.11-3.14 通过。
+- 完整非 Docker 单元测试在 Ubuntu 与 macOS 的 Python 3.11-3.14 矩阵通过。
 - 固定 digest 的 Linux wrapper 集成测试零 skip。
 - portable install、`doctor`、fake drill 和 uninstall smoke 通过。
 - workflow 危险参数扫描、文档引用、`git diff --check` 和秘密扫描通过。

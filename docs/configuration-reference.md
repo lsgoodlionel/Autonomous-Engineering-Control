@@ -42,6 +42,8 @@ Profile 字段：`paths` 与 `gates`。引用的 Gate ID 必须存在且不得�
 
 `activePlan` 与 `fixture.planPath` 当前必须位于 `docs/superpowers/plans/`。`secretPolicy.patterns` 指定秘密候选路径，`allowlist` 只能做窄范围模板豁免，不能放行真实配置。`documentation.statusMarkerPaths` 列出需要与交付状态一致的宿主文档。
 
+`doctor` 将上述 active plan、delivery manifest、ledger、fixture、fixture plan 和状态文档视为完整宿主契约：路径必须安全、文件必须存在且不得经过 symlink。
+
 ## STATE_SCHEMA.json
 
 这是运行状态 wire contract，不是手工状态文件。重要约束包括：
@@ -59,4 +61,4 @@ Profile 字段：`paths` 与 `gates`。引用的 Gate ID 必须存在且不得�
 
 ## HARNESS_DELIVERY.json
 
-交付清单属于宿主集成契约，不是核心运行状态。模板只提供空白初态；宿主应由交付控制器填入计划步骤、当前实现提交、验证证据、独立复审和外部同步状态。不得复制其他项目的 commit、报告摘要或同步状态。
+交付清单属于宿主集成契约，不是核心运行状态。模板初态固定为 `not_started`、空实现提交、pending evidence/external sync、空报告和 `security`、`dx_ci`、`whole_branch` reviewer 列表；宿主应由交付控制器填入计划步骤、当前实现提交、验证证据、独立复审和外部同步状态。不得复制其他项目的 commit、报告摘要或同步状态。

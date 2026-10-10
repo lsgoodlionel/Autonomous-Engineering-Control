@@ -503,6 +503,18 @@ AGENT_HARNESS_CI=1 pythonLocation=/opt/hostedtoolcache/Python/3.11.99/x64 \
         self.assertEqual(mismatched.returncode, 2, mismatched.stderr or mismatched.stdout)
         self.assertIn("Python bootstrap 身份变化", mismatched.stdout)
 
+    def test_linux_wrapper_accepts_macos_runner_hosted_toolcache_layout(self):
+        hosted = self.linux_wrapper(r"""
+mkdir -p /Users/runner/hostedtoolcache/Python/3.11.99/x64/bin
+cp -L /usr/local/bin/python3.11 /Users/runner/hostedtoolcache/Python/3.11.99/x64/bin/python
+chmod 0755 /Users/runner/hostedtoolcache/Python/3.11.99/x64/bin/python
+rm -f /usr/local/bin/python3.11 /usr/bin/python3 /usr/bin/python3.11
+AGENT_HARNESS_CI=1 pythonLocation=/Users/runner/hostedtoolcache/Python/3.11.99/x64 \
+  /repo/scripts/agent-harness --python --version
+""")
+        self.assertEqual(hosted.returncode, 0, hosted.stderr or hosted.stdout)
+        self.assertRegex(hosted.stdout, r"^Python 3\.11\.")
+
     def test_linux_wrapper_never_splits_untrusted_python_location(self):
         rejected = self.linux_wrapper(r"""
 mkdir -p /opt/hostedtoolcache/Python/suffix/x64

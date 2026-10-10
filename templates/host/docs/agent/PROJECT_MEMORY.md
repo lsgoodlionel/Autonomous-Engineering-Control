@@ -1,5 +1,7 @@
 # 项目稳定记忆
 
+<!-- harness-delivery-status: not_started -->
+
 核对日期：`YYYY-MM-DD`。本文只记录可重新验证的稳定事实，不记录运行 ID、当前分支、临时端口或一次性错误。
 
 ## 身份与权威入口

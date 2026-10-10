@@ -15,7 +15,7 @@
     },
     {
       "id": "dependency-and-production",
-      "patterns": ["**/lock", "**/lock.*", "**/*.lock", "**/migrations/**", "deploy/**", ".github/workflows/**"],
+      "patterns": ["lock", "lock.*", "*.lock", "**/lock", "**/lock.*", "**/*.lock", "migrations/**", "**/migrations/**", "package-lock.json", "pnpm-lock.yaml", "yarn.lock", "**/package-lock.json", "**/pnpm-lock.yaml", "**/yarn.lock", "deploy/**", ".github/workflows/**"],
       "operations": ["add", "modify", "delete"],
       "action": "approval_required"
     },

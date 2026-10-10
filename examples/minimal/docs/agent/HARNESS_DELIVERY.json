@@ -4,7 +4,7 @@
   "externalSync": {"independentReview": "pending", "repository": "pending", "knowledgeBase": "pending"},
   "implementationCommit": null,
   "planPath": "docs/superpowers/plans/approved-plan.md",
-  "reviewEvidence": {"reports": [], "requiredReviewers": []},
+  "reviewEvidence": {"reports": [], "requiredReviewers": ["security", "dx_ci", "whole_branch"]},
   "taskSteps": {},
   "version": 1
 }

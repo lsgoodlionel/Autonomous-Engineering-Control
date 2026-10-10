@@ -29,7 +29,8 @@ jobs:
         shell: bash
         run: |
           if [[ "$(uname -s)" == "Darwin" ]]; then
-            controlled="/Users/runner/agent-harness-python/${{ matrix.python }}/arm64"
+            version_root="${pythonLocation%/*}"
+            controlled="/Users/runner/agent-harness-python/${version_root##*/}/arm64"
             mkdir -p "$controlled"
             cp -R "$pythonLocation/." "$controlled/"
             chmod -R go-w "$controlled"
@@ -72,7 +73,8 @@ jobs:
       - name: Harden controlled Python
         run: |
           if [[ "$(uname -s)" == "Darwin" ]]; then
-            controlled="/Users/runner/agent-harness-python/3.11/arm64"
+            version_root="${pythonLocation%/*}"
+            controlled="/Users/runner/agent-harness-python/${version_root##*/}/arm64"
             mkdir -p "$controlled"
             cp -R "$pythonLocation/." "$controlled/"
             chmod -R go-w "$controlled"

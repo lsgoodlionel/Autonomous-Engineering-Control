@@ -91,7 +91,8 @@ class GovernanceWorkflowTests(unittest.TestCase):
             "- name: Verify controlled Python", 1
         )[0]
         self.assertIn('for path in "${pythonLocation%/*/*}"', hardening)
-        self.assertIn('controlled="/Users/runner/agent-harness-python/', hardening)
+        self.assertIn('version_root="${pythonLocation%/*}"', hardening)
+        self.assertIn('controlled="/Users/runner/agent-harness-python/${version_root##*/}/arm64"', hardening)
         self.assertIn('cp -R "$pythonLocation/." "$controlled/"', hardening)
         self.assertIn('printf \'pythonLocation=%s\\n\' "$controlled" >> "$GITHUB_ENV"', hardening)
         self.assertIn('chmod -R go-w "$controlled"', hardening)

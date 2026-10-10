@@ -86,21 +86,18 @@ class GovernanceWorkflowTests(unittest.TestCase):
         self.assertIn("/Users/runner/hostedtoolcache/Python", wrapper)
         self.assertNotIn("/opt/homebrew", wrapper)
 
-    def test_python_hardening_copies_protected_macos_toolcache(self):
+    def test_python_hardening_uses_sudo_only_for_macos_toolcache(self):
         hardening = self.text.split("- name: Harden controlled Python", 1)[1].split(
             "- name: Verify controlled Python", 1
         )[0]
         self.assertIn('for path in "${pythonLocation%/*/*}"', hardening)
-        self.assertIn('version_root="${pythonLocation%/*}"', hardening)
-        self.assertIn('controlled="/Users/runner/agent-harness-python/${version_root##*/}/arm64"', hardening)
-        self.assertIn('cp -R "$pythonLocation/." "$controlled/"', hardening)
-        self.assertIn('printf \'pythonLocation=%s\\n\' "$controlled" >> "$GITHUB_ENV"', hardening)
-        self.assertIn('chmod -R go-w "$controlled"', hardening)
         self.assertIn('stat -f \'%Lp\' "$path"', hardening)
         self.assertIn('stat -c \'%a\' "$path"', hardening)
         self.assertIn('if (( (8#$mode & 0022) != 0 )); then', hardening)
+        self.assertIn('/usr/bin/sudo /bin/chmod go-w "$path"', hardening)
         self.assertIn('chmod go-w "$path"', hardening)
         self.assertIn('if [[ "$(uname -s)" == "Darwin" ]]; then', hardening)
+        self.assertNotIn("agent-harness-python", hardening)
         self.assertNotIn('run: chmod go-w ', hardening)
 
     def test_workflow_has_no_delivery_side_effects(self):

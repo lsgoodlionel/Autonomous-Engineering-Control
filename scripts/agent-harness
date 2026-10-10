@@ -134,8 +134,6 @@ if [ "$ci_mode" = 1 ]; then
         /opt/hostedtoolcache/Python/*/x64) ci_root=/opt/hostedtoolcache/Python ;;
         /Users/runner/hostedtoolcache/Python/*/x64|/Users/runner/hostedtoolcache/Python/*/arm64)
             ci_root=/Users/runner/hostedtoolcache/Python ;;
-        /Users/runner/agent-harness-python/*/arm64)
-            ci_root=/Users/runner/agent-harness-python ;;
         *) ci_root= ;;
     esac
     if [ -n "$ci_root" ]; then
@@ -161,8 +159,6 @@ try_bootstrap_candidate() {
             primary=/opt/hostedtoolcache/Python; secondary=; allowed_owner=$current_uid ;;
         /Users/runner/hostedtoolcache/Python/*)
             primary=/Users/runner/hostedtoolcache/Python; secondary=; allowed_owner=$current_uid ;;
-        /Users/runner/agent-harness-python/*)
-            primary=/Users/runner/agent-harness-python; secondary=; allowed_owner=$current_uid ;;
         /usr/local/*) primary=/usr/local; secondary= ;;
         /usr/*)
             primary=/usr
@@ -249,8 +245,7 @@ def trusted_bootstrap(candidate, roots, expected, allowed_owner):
             return None
         actual = Path(sys.executable).resolve(strict=True)
         expected_versioned_name = f"python{sys.version_info.major}.{sys.version_info.minor}"
-        hosted = any(str(root).endswith(("/hostedtoolcache/Python", "/agent-harness-python"))
-                     for root in roots)
+        hosted = any(str(root).endswith("/hostedtoolcache/Python") for root in roots)
         require_version_binding = candidate.name != "python3" or hosted
         if (require_version_binding and actual != target.resolve(strict=True)
                 or require_version_binding and target.name.startswith("python3.")
@@ -271,8 +266,7 @@ def trusted_runtime(candidate, root, owner):
         if (not candidate.is_absolute() or candidate.is_symlink()
                 or candidate.name not in allowed_names):
             return None
-        if candidate.name == "python" and not str(root).endswith(
-                ("/hostedtoolcache/Python", "/agent-harness-python")):
+        if candidate.name == "python" and not str(root).endswith("/hostedtoolcache/Python"):
             return None
         target = candidate.resolve(strict=True)
         if target != candidate or not target.is_relative_to(root):

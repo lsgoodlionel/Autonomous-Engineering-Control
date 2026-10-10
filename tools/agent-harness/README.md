@@ -18,7 +18,7 @@
 
 安装到另一个仓库时使用仓库根 `install.sh`，由 ownership manifest 记录核心文件，并 seed 下一节的完整宿主契约。
 目标主机必须有 Python 3.11-3.14 和 Git；CI 在 Ubuntu 与 macOS 上覆盖全部四个 Python minor。macOS CI
-将 `setup-python` runtime 复制到 runner 私有目录并收紧权限后使用；本地运行使用严格权限的 uv runtime，
+在执行仓库代码前以 runner 的受控 `sudo` 收紧 `setup-python` runtime 权限；本地运行使用严格权限的 uv runtime，
 默认 group-write 的 Homebrew prefix 不属于 Python 信任根。
 Node、Java、Docker、Codex 是否必需由宿主 Gate 与实际 Milestone 决定。
 

@@ -32,7 +32,7 @@ scripts/agent-harness --python \
 
 版本输出必须落在 3.11-3.14。`doctor` 的 error 必须全部处理；warning 需判断是否与当前 Milestone 有关。未安装的可选工具不应被伪造为可用。
 
-macOS CI 将 `setup-python` runtime 复制到 runner 私有目录、收紧权限并重新绑定身份；本地运行使用用户私有且逐级不可 group/other-write 的 uv runtime。默认 Homebrew prefix 的 `bin` 通常可被 group 写入，因此不作为 Harness Python 信任根；不要通过放宽权限检查来启用它。
+macOS CI 在执行仓库代码前以 runner 的受控 `sudo` 收紧 `setup-python` runtime 权限并重新绑定身份；本地运行使用用户私有且逐级不可 group/other-write 的 uv runtime。默认 Homebrew prefix 的 `bin` 通常可被 group 写入，因此不作为 Harness Python 信任根；不要通过放宽权限检查来启用它。
 
 ## 独立 worktree
 

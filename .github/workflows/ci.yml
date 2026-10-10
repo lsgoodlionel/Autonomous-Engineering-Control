@@ -28,17 +28,6 @@ jobs:
       - name: Harden controlled Python
         shell: bash
         run: |
-          if [[ "$(uname -s)" == "Darwin" ]]; then
-            /usr/bin/stat -f 'toolcache=%N mode=%OLp flags=%Sf owner=%u' "$pythonLocation/bin/python${{ matrix.python }}"
-            /bin/ls -ldeO "$pythonLocation/bin/python${{ matrix.python }}"
-            version_root="${pythonLocation%/*}"
-            controlled="/Users/runner/agent-harness-python/${version_root##*/}/arm64"
-            mkdir -p "$controlled"
-            cp -R "$pythonLocation/." "$controlled/"
-            chmod -R go-w "$controlled"
-            printf 'pythonLocation=%s\n' "$controlled" >> "$GITHUB_ENV"
-            exit 0
-          fi
           for path in "${pythonLocation%/*/*}" "${pythonLocation%/*}" "$pythonLocation" "$pythonLocation/bin" "$pythonLocation/bin/python${{ matrix.python }}"; do
             if [[ "$(uname -s)" == "Darwin" ]]; then
               mode=$(stat -f '%Lp' "$path")
@@ -46,7 +35,11 @@ jobs:
               mode=$(stat -c '%a' "$path")
             fi
             if (( (8#$mode & 0022) != 0 )); then
-              chmod go-w "$path"
+              if [[ "$(uname -s)" == "Darwin" ]]; then
+                /usr/bin/sudo /bin/chmod go-w "$path"
+              else
+                chmod go-w "$path"
+              fi
             fi
           done
       - name: Verify controlled Python
@@ -81,15 +74,6 @@ jobs:
           python-version: '3.11'
       - name: Harden controlled Python
         run: |
-          if [[ "$(uname -s)" == "Darwin" ]]; then
-            version_root="${pythonLocation%/*}"
-            controlled="/Users/runner/agent-harness-python/${version_root##*/}/arm64"
-            mkdir -p "$controlled"
-            cp -R "$pythonLocation/." "$controlled/"
-            chmod -R go-w "$controlled"
-            printf 'pythonLocation=%s\n' "$controlled" >> "$GITHUB_ENV"
-            exit 0
-          fi
           for path in "${pythonLocation%/*/*}" "${pythonLocation%/*}" "$pythonLocation" "$pythonLocation/bin" "$pythonLocation/bin/python3.11"; do
             if [[ "$(uname -s)" == "Darwin" ]]; then
               mode=$(stat -f '%Lp' "$path")
@@ -97,7 +81,11 @@ jobs:
               mode=$(stat -c '%a' "$path")
             fi
             if (( (8#$mode & 0022) != 0 )); then
-              chmod go-w "$path"
+              if [[ "$(uname -s)" == "Darwin" ]]; then
+                /usr/bin/sudo /bin/chmod go-w "$path"
+              else
+                chmod go-w "$path"
+              fi
             fi
           done
       - name: Verify controlled Python

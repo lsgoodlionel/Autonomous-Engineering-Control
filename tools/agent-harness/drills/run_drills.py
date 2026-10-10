@@ -1031,14 +1031,28 @@ def check_docs(repo: Path, host: dict) -> None:
         if _plan_checkboxes(plan_path.read_text(encoding="utf-8")) != manifest["taskSteps"]:
             raise ValueError()
         external = manifest["externalSync"]
-        allowed_status = {
+        legacy_status = {
             ("pending", "pending", "pending"): "local_validated_sync_pending",
             ("complete", "pending", "pending"): "locally_reviewed_sync_pending",
             ("complete", "complete", "pending"): "github_synced_obsidian_pending",
             ("complete", "complete", "complete"): "fully_synchronized",
         }
-        key = (external.get("independentReview"), external.get("github"), external.get("obsidian"))
-        if allowed_status.get(key) != manifest["deliveryStatus"]:
+        generic_status = {
+            ("pending", "pending", "pending"): "local_validated_sync_pending",
+            ("complete", "pending", "pending"): "locally_reviewed_sync_pending",
+            ("complete", "complete", "pending"): "repository_synced_knowledge_base_pending",
+            ("complete", "complete", "complete"): "fully_synchronized",
+        }
+        if set(external) == {"independentReview", "repository", "knowledgeBase"}:
+            key = (external["independentReview"], external["repository"],
+                   external["knowledgeBase"])
+            expected_status = generic_status.get(key)
+        elif set(external) == {"independentReview", "github", "obsidian"}:
+            key = (external["independentReview"], external["github"], external["obsidian"])
+            expected_status = legacy_status.get(key)
+        else:
+            raise ValueError()
+        if expected_status != manifest["deliveryStatus"]:
             raise ValueError()
         _validate_review_evidence(root, manifest, external.get("independentReview") == "complete")
         ledger = ledger_path.read_text(encoding="utf-8")

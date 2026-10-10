@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "gates": [
+    {
+      "id": "unit",
+      "command": ["scripts/agent-harness", "--python", "-m", "unittest", "discover", "-s", "tests", "-p", "test_*.py", "-v"],
+      "cwd": ".",
+      "timeout_seconds": 300
+    },
+    {
+      "id": "diff-check",
+      "command": ["git", "diff", "--check"],
+      "cwd": ".",
+      "timeout_seconds": 60
+    }
+  ],
+  "profiles": {
+    "application": {
+      "paths": ["src/**", "tests/**"],
+      "gates": ["unit", "diff-check"]
+    },
+    "documentation": {
+      "paths": ["AGENTS.md", "docs/**"],
+      "gates": ["diff-check"]
+    }
+  }
+}

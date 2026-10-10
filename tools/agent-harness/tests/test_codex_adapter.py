@@ -22,7 +22,7 @@ class AdapterCase(WorktreeCase):
     def setUpClass(cls):
         from agent_harness import codex_adapter
         project = Path(__file__).resolve().parents[3]
-        cls.tool_fixture = tempfile.TemporaryDirectory(prefix="task8-tools-", dir=project.parents[2])
+        cls.tool_fixture = tempfile.TemporaryDirectory(prefix="task8-tools-", dir=project.parent)
         root = Path(cls.tool_fixture.name).resolve()
         bound = {tool.name: tool for tool in codex_adapter._BOUND_TOOLS}
         for name in ("node", "npm", "docker", "java"):
@@ -279,7 +279,7 @@ class AdapterCase(WorktreeCase):
 
     def test_tool_discovery_never_anchors_to_path_before_module_import(self):
         project = Path(__file__).resolve().parents[3]
-        with tempfile.TemporaryDirectory(prefix="task7-path-", dir=project.parents[2]) as directory:
+        with tempfile.TemporaryDirectory(prefix="task7-path-", dir=project.parent) as directory:
             poisoned = Path(directory)
             for name in ("codex", "git", "node", "npm", "docker", "python3.11", "java"):
                 executable = poisoned / name
@@ -346,7 +346,7 @@ print(json.dumps({"path": environment["PATH"], "tools": tools, "codex": codex_ad
 
     def test_doctor_never_executes_path_candidates_before_controlled_validation(self):
         project = Path(__file__).resolve().parents[3]
-        with tempfile.TemporaryDirectory(prefix="task7-doctor-", dir=project.parents[2]) as directory:
+        with tempfile.TemporaryDirectory(prefix="task7-doctor-", dir=project.parent) as directory:
             poisoned = Path(directory)
             marker = poisoned / "executed"
             script_body = "#!/bin/sh\nprintf x >> '" + str(marker) + "'\nprintf 'v22.0.0\\n'\n"
@@ -378,7 +378,7 @@ print(json.dumps({"code": code, "marker": Path(sys.argv[2]).exists(), "output": 
 
     def test_real_wrapper_and_module_cli_never_execute_caller_path_programs(self):
         project = Path(__file__).resolve().parents[3]
-        with tempfile.TemporaryDirectory(prefix="task7-entrypoint-", dir=project.parents[2]) as directory:
+        with tempfile.TemporaryDirectory(prefix="task7-entrypoint-", dir=project.parent) as directory:
             poisoned = Path(directory)
             marker = poisoned / "executed"
             script_body = "#!/bin/sh\nprintf '%s\\n' \"$0\" >> '" + str(marker) + "'\nexit 99\n"
@@ -408,7 +408,7 @@ print(json.dumps({"code": code, "marker": Path(sys.argv[2]).exists(), "output": 
 
     def test_real_wrapper_isolates_pythonpath_sitecustomize_for_version_and_help(self):
         project = Path(__file__).resolve().parents[3]
-        with tempfile.TemporaryDirectory(prefix="task7-pythonpath-", dir=project.parents[2]) as directory:
+        with tempfile.TemporaryDirectory(prefix="task7-pythonpath-", dir=project.parent) as directory:
             startup = Path(directory)
             marker = startup / "executed"
             self.write(startup / "sitecustomize.py",
@@ -426,7 +426,7 @@ print(json.dumps({"code": code, "marker": Path(sys.argv[2]).exists(), "output": 
 
     def test_real_wrapper_isolates_caller_user_site_for_version_and_help(self):
         project = Path(__file__).resolve().parents[3]
-        with tempfile.TemporaryDirectory(prefix="task7-usersite-", dir=project.parents[2]) as directory:
+        with tempfile.TemporaryDirectory(prefix="task7-usersite-", dir=project.parent) as directory:
             user_base = Path(directory)
             marker = user_base / "executed"
             payload = "from pathlib import Path\nPath(" + repr(str(marker)) + ").write_text('executed')\n"
@@ -446,7 +446,7 @@ print(json.dumps({"code": code, "marker": Path(sys.argv[2]).exists(), "output": 
 
     def test_real_wrapper_ignores_pythonhome_and_pythonstartup_for_version_and_help(self):
         project = Path(__file__).resolve().parents[3]
-        with tempfile.TemporaryDirectory(prefix="task7-pythonhome-", dir=project.parents[2]) as directory:
+        with tempfile.TemporaryDirectory(prefix="task7-pythonhome-", dir=project.parent) as directory:
             startup = Path(directory)
             marker = startup / "executed"
             self.write(startup / "startup.py",
@@ -525,7 +525,7 @@ done
 
     def test_requested_docker_path_is_revalidated_against_trusted_roots(self):
         project = Path(__file__).resolve().parents[3]
-        with tempfile.TemporaryDirectory(prefix="task8-docker-", dir=project.parents[2]) as directory:
+        with tempfile.TemporaryDirectory(prefix="task8-docker-", dir=project.parent) as directory:
             root = Path(directory)
             target = root / "app/docker"
             self.write(target, "#!/bin/sh\nexit 0\n")
@@ -605,7 +605,7 @@ test ! -e /tmp/codex-executed
 
     def test_linux_trusted_root_symlinks_and_supported_python_are_bound(self):
         project = Path(__file__).resolve().parents[3]
-        with tempfile.TemporaryDirectory(prefix="task7-linux-", dir=project.parents[2]) as directory:
+        with tempfile.TemporaryDirectory(prefix="task7-linux-", dir=project.parent) as directory:
             root = Path(directory)
             java_target = root / "lib/jvm/java-21/bin/java"
             java_target.parent.mkdir(parents=True)
@@ -641,7 +641,7 @@ test ! -e /tmp/codex-executed
 
     def test_linux_symlink_policy_rejects_escape_writable_and_identity_changes(self):
         project = Path(__file__).resolve().parents[3]
-        with tempfile.TemporaryDirectory(prefix="task7-linux-negative-", dir=project.parents[2]) as directory:
+        with tempfile.TemporaryDirectory(prefix="task7-linux-negative-", dir=project.parent) as directory:
             root = Path(directory)
             binary = root / "lib/java"
             binary.parent.mkdir()
@@ -681,7 +681,7 @@ test ! -e /tmp/codex-executed
     def test_linux_alternatives_chain_across_approved_roots_is_revalidated(self):
         project = Path(__file__).resolve().parents[3]
         with tempfile.TemporaryDirectory(prefix="task7-linux-alternatives-",
-                                         dir=project.parents[2]) as directory:
+                                         dir=project.parent) as directory:
             fixture = Path(directory)
             usr, alternatives = fixture / "usr", fixture / "etc/alternatives"
             target = usr / "lib/jvm/java-21/bin/java"

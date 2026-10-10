@@ -1,0 +1,10 @@
+{
+  "deliveryStatus": "not_started",
+  "evidence": {"commands": [], "headCommit": null, "status": "pending"},
+  "externalSync": {"independentReview": "pending", "repository": "pending", "knowledgeBase": "pending"},
+  "implementationCommit": null,
+  "planPath": "docs/superpowers/plans/approved-plan.md",
+  "reviewEvidence": {"reports": [], "requiredReviewers": []},
+  "taskSteps": {},
+  "version": 1
+}

@@ -870,8 +870,8 @@ class FaultInjectionTests(unittest.TestCase):
                 "taskSteps": {"1": {"completed": [1], "pending": []},
                               "8": {"completed": [], "pending": [1]}},
                 "deliveryStatus": "local_validated_sync_pending",
-                "externalSync": {"independentReview": "pending", "github": "pending",
-                                 "obsidian": "pending"},
+                "externalSync": {"independentReview": "pending", "repository": "pending",
+                                 "knowledgeBase": "pending"},
                 "reviewEvidence": {
                     "requiredReviewers": ["security", "dx_ci", "whole_branch"],
                     "reports": [],
@@ -926,9 +926,11 @@ class FaultInjectionTests(unittest.TestCase):
                 (repo / relative).write_text(complete_marker + "\n", encoding="utf-8")
             self.runner.check_docs(repo, host)
             stages = (
-                ({"independentReview": "complete", "github": "complete", "obsidian": "pending"},
-                 "github_synced_obsidian_pending"),
-                ({"independentReview": "complete", "github": "complete", "obsidian": "complete"},
+                ({"independentReview": "complete", "repository": "complete",
+                  "knowledgeBase": "pending"},
+                 "repository_synced_knowledge_base_pending"),
+                ({"independentReview": "complete", "repository": "complete",
+                  "knowledgeBase": "complete"},
                  "fully_synchronized"),
             )
             for external, status in stages:
@@ -976,7 +978,7 @@ class FaultInjectionTests(unittest.TestCase):
                 self.runner.load_host_config(repo, config.relative_to(repo))
 
     def test_portable_copy_runs_wrapper_and_fake_autonomous_smoke(self):
-        with tempfile.TemporaryDirectory(prefix="task8-portable-", dir=REPO.parents[2]) as directory:
+        with tempfile.TemporaryDirectory(prefix="task8-portable-", dir=REPO.parent) as directory:
             repo = Path(directory) / "portable"
             shutil.copytree(REPO / "tools/agent-harness", repo / "tools/agent-harness",
                             ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
@@ -1013,7 +1015,7 @@ class FaultInjectionTests(unittest.TestCase):
             (repo / "docs/agent/AUTONOMY.md").write_text(marker, encoding="utf-8")
             (repo / "docs/agent/portable-progress.md").write_text(
                 "Task 1: complete\nTask 8: in_progress\n", encoding="utf-8")
-            (repo / "docs/agent/HARNESS_HOST.json").unlink()
+            (repo / "docs/agent/HARNESS_HOST.json").unlink(missing_ok=True)
             subprocess.run(["git", "add", "."], cwd=repo, check=True, capture_output=True)
             subprocess.run(["git", "commit", "-m", "portable host"], cwd=repo, check=True,
                            capture_output=True)
@@ -1028,8 +1030,8 @@ class FaultInjectionTests(unittest.TestCase):
                 "taskSteps": {"1": {"completed": [1], "pending": []},
                               "8": {"completed": [], "pending": [1]}},
                 "deliveryStatus": "local_validated_sync_pending",
-                "externalSync": {"independentReview": "pending", "github": "pending",
-                                 "obsidian": "pending"},
+                "externalSync": {"independentReview": "pending", "repository": "pending",
+                                 "knowledgeBase": "pending"},
                 "reviewEvidence": {"requiredReviewers": ["security", "dx_ci", "whole_branch"],
                                    "reports": []},
             }, sort_keys=True), encoding="utf-8")

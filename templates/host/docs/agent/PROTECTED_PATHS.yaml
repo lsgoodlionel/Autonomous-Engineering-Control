@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "rules": [
+    {
+      "id": "secrets",
+      "patterns": [".env", ".env.*", "**/.env", "**/.env.*", "**/*.pem", "**/*.key", "secrets/**", "**/secrets/**"],
+      "operations": ["add", "modify", "delete"],
+      "action": "deny"
+    },
+    {
+      "id": "control-plane",
+      "patterns": ["AGENTS.md", "scripts/agent-harness", "tools/agent-harness/**", "docs/agent/**"],
+      "operations": ["add", "modify", "delete"],
+      "action": "approval_required"
+    },
+    {
+      "id": "dependency-and-production",
+      "patterns": ["**/lock", "**/lock.*", "**/*.lock", "**/migrations/**", "deploy/**", ".github/workflows/**"],
+      "operations": ["add", "modify", "delete"],
+      "action": "approval_required"
+    },
+    {
+      "id": "application-review",
+      "patterns": ["src/**", "tests/**", "docs/**"],
+      "operations": ["add", "modify", "delete"],
+      "action": "review_required"
+    }
+  ]
+}

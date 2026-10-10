@@ -1,0 +1,9 @@
+{
+  "activePlan": "docs/superpowers/plans/approved-plan.md",
+  "deliveryManifest": "docs/agent/HARNESS_DELIVERY.json",
+  "documentation": {"statusMarkerPaths": ["AGENTS.md", "docs/agent/AUTONOMY.md", "docs/agent/PROJECT_MEMORY.md"]},
+  "fixture": {"baseline": "baseline\n", "expected": "baseline\nsmoke-ok\n", "path": "tests/fixtures/real_executor_smoke.txt", "planPath": "docs/superpowers/plans/real-executor-smoke.md"},
+  "ledger": "docs/agent/PROGRESS.md",
+  "secretPolicy": {"allowlist": [".env.example", "**/.env.example", "tests/fixtures/**"], "patterns": [".env", ".env.*", "**/.env", "**/.env.*", "**/*.pem", "**/*.key", "secrets/**", "**/secrets/**"]},
+  "version": 1
+}

@@ -131,6 +131,9 @@ class FaultInjectionTests(unittest.TestCase):
     def test_codex_timeout_is_bounded_and_typed(self):
         self.assert_drill_passes("codex-timeout")
 
+    def test_generated_verification_drill_is_isolated_and_fail_closed(self):
+        self.assert_drill_passes("generated-verification")
+
     def test_default_cli_runs_only_fake_drills(self):
         with patch.object(self.runner, "run_real_codex_smoke") as real, redirect_stdout(io.StringIO()):
             self.assertEqual(self.runner.main([]), 0)

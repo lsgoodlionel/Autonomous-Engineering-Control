@@ -112,8 +112,118 @@ class WorktreeCase(unittest.TestCase):
         self.write(path, json.dumps(report))
         return path.relative_to(self.repo)
 
+    def configure_generated_fixture(self, renderer=None):
+        renderer = renderer or (
+            "from pathlib import Path\n"
+            "source = Path('inputs/source.txt').read_bytes()\n"
+            "target = Path('generated/output.md')\n"
+            "target.parent.mkdir(parents=True, exist_ok=True)\n"
+            "target.write_bytes(b'# generated\\n' + source)\n"
+        )
+        self.write(self.repo / "inputs/source.txt", "initial\n")
+        self.write(self.repo / "tools/render.py", renderer)
+        self.write(self.repo / "generated/output.md", "# generated\ninitial\n")
+        policy_path = self.repo / "docs/agent/PROTECTED_PATHS.yaml"
+        policy = json.loads(policy_path.read_text())
+        policy["rules"].insert(1, {
+            "id": "generated-output",
+            "patterns": ["generated/output.md"],
+            "operations": ["add", "modify", "delete"],
+            "action": "generated",
+            "generator": [sys.executable, "tools/render.py"],
+        })
+        self.write(policy_path, json.dumps(policy))
+        matrix_path = self.repo / "docs/agent/GATE_MATRIX.yaml"
+        matrix = json.loads(matrix_path.read_text())
+        matrix["profiles"]["fixture"]["paths"].extend(["inputs/**", "generated/**"])
+        self.write(matrix_path, json.dumps(matrix))
+        self.git("add", ".")
+        self.git("commit", "-m", "generated fixture")
+
 
 class RunServiceTests(WorktreeCase):
+    def test_generated_output_is_verified_before_scope_binding_and_gate(self):
+        self.configure_generated_fixture()
+        self.init_run()
+        self.write(self.repo / "inputs/source.txt", "changed\n")
+        self.write(self.repo / "generated/output.md", "# generated\nchanged\n")
+
+        state = self.service.run_gates(self.state.run_id, ())
+
+        generated = [d for d in state.decisions if d["type"] == "generated_verification"]
+        authorized = [d for d in state.decisions if d["type"] == "authorized_paths"]
+        self.assertEqual(len(generated), 1)
+        self.assertEqual(len(authorized), 1)
+        self.assertLess(state.decisions.index(generated[0]), state.decisions.index(authorized[0]))
+        binding = json.loads(generated[0]["summary"])
+        self.assertEqual(binding["outputs"], {"generated/output.md": binding["outputs"]["generated/output.md"]})
+        self.assertTrue((self.repo / binding["metadataPath"]).is_file())
+        self.assertEqual(state.gates["unit"].status, GateStatus.PASSED)
+
+    def test_generated_output_mismatch_pauses_before_gate_and_records_diagnostic(self):
+        self.configure_generated_fixture()
+        self.init_run()
+        self.write(self.repo / "generated/output.md", "hand edited\n")
+
+        with self.assertRaises(ServiceError) as caught:
+            self.service.run_gates(self.state.run_id, ())
+
+        self.assertEqual(caught.exception.exit_code, 5)
+        state = self.reload()
+        self.assertEqual(state.status, RunStatus.PAUSED)
+        self.assertEqual(state.gates, {})
+        records = [d for d in state.decisions if d["type"] == "generated_verification"]
+        self.assertEqual(len(records), 1)
+        binding = json.loads(records[0]["summary"])
+        self.assertEqual(binding["failureKind"], "output_mismatch")
+        metadata = json.loads((self.repo / binding["metadataPath"]).read_text())
+        self.assertEqual(metadata["failureKind"], "output_mismatch")
+
+    def test_generated_binding_drift_before_scope_binding_pauses_without_gate(self):
+        from agent_harness import run_service as module
+
+        self.configure_generated_fixture()
+        self.init_run()
+        self.write(self.repo / "inputs/source.txt", "changed\n")
+        self.write(self.repo / "generated/output.md", "# generated\nchanged\n")
+        verify = module.verify_generated_outputs
+
+        def verify_then_drift(*args, **kwargs):
+            results = verify(*args, **kwargs)
+            self.write(self.repo / "generated/output.md", "concurrent drift\n")
+            return results
+
+        with patch.object(module, "verify_generated_outputs", side_effect=verify_then_drift):
+            with self.assertRaises(ServiceError) as caught:
+                self.service.run_gates(self.state.run_id, ())
+
+        self.assertEqual(caught.exception.exit_code, 5)
+        state = self.reload()
+        self.assertEqual(state.status, RunStatus.PAUSED)
+        self.assertEqual(state.gates, {})
+        self.assertFalse(any(d["type"] == "authorized_paths" for d in state.decisions))
+        generated = [d for d in state.decisions if d["type"] == "generated_verification"]
+        self.assertEqual(json.loads(generated[-1]["summary"])["failureKind"], "binding_drift")
+
+    def test_generated_command_drift_after_init_pauses_without_running_gate(self):
+        self.configure_generated_fixture()
+        self.init_run()
+        policy_path = self.repo / "docs/agent/PROTECTED_PATHS.yaml"
+        policy = json.loads(policy_path.read_text())
+        generated = next(rule for rule in policy["rules"] if rule["action"] == "generated")
+        generated["generator"].append("--drifted")
+        self.write(policy_path, json.dumps(policy))
+
+        with self.assertRaises(ServiceError) as caught:
+            self.service.run_gates(self.state.run_id, ())
+
+        self.assertEqual(caught.exception.exit_code, 5)
+        state = self.reload()
+        self.assertEqual(state.status, RunStatus.PAUSED)
+        self.assertEqual(state.gates, {})
+        history = self.repo / "docs/agent/run-history" / (self.state.run_id + ".md")
+        self.assertIn("策略配置发生漂移", history.read_text())
+
     def test_recovery_revalidates_review_before_appending_completed_event(self):
         self.init_run()
         self.changed_commit()

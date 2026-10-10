@@ -31,10 +31,13 @@ Python Gate 应通过 `scripts/agent-harness --python` 进入受控运行时。N
 
 - `deny`：自治执行不可修改。
 - `approval_required`：需要范围明确的人工批准。
-- `generated`：只能通过声明的 generator 参数数组修改。
+- `generated`：只能通过声明的 generator 参数数组修改；命中后须在临时隔离树中从绑定工作区输入重跑，输出逐字节一致且写集仅含声明生成物。
 - `review_required`：允许实现，但完成前必须独立复审。
 
 未匹配路径不会隐式获得批准。对控制平面策略自身至少使用 `approval_required`；秘密与私钥路径通常使用 `deny`。
+generated 规则应尽量使用精确输出路径，并确保生成器只依赖已跟踪或未忽略的仓库文件。需要 ignored 构建缓存、网络、
+外部服务、交互输入或仓库外写入的生成器无法建立可重复输入边界，Harness 会关闭拒绝；应先改造成确定性生成器，而不是
+放宽路径策略。
 
 ## 计划与 Milestone
 

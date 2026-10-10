@@ -10,6 +10,7 @@
 - Python 3.11-3.14 运行边界和独立 worktree 约束。
 - 通用宿主模板、最小接入示例及安装、升级、卸载、安全和 Release 文档。
 - 基于路径、模式和 SHA-256 的安装 ownership manifest，以及 linked worktree、完整 host seed 和 symlink 越界回归测试。
+- generated 路径的隔离重生成验证、输入/输出摘要绑定、越界写入检测和结构化失败 evidence；distribution manifest format 3 登记新增 verifier runtime，同时保留 format 1/2 的历史精确文件集合。
 
 ### Changed
 
@@ -22,6 +23,7 @@
 - 支持从 `4727ca9` 的 `0.1.0` 纯文本安装 marker 经历史哈希校验迁移；JSON manifest 按自身 versioned file-set schema 校验，允许新 format 合法增删 owned files。
 - delivery 同步改为逐 descendant commit、逐 parent 的 NUL-safe 路径历史校验；repository complete 改由限定 repository/workflow 的 GitHub signed implementation-commit artifact attestation 证明，后续仅允许预声明文档同步，本地环境变量不再被信任。
 - distribution 将 validated repository root identity 贯穿全部操作；install rollback 保存创建时 identity，replace/unlink 采用同父目录 quarantine rename，并保留随机 private entry，避免 POSIX identity-unbound unlink 误删并发换入的宿主文件。
+- generated 路径不再无条件拒绝；只有策略绑定的固定 argv 在临时输入树中重跑并精确复现当前输出后，才允许 scope bind 和 Gate，`deny`、`approval_required` 与普通 `review_required` 语义保持不变。
 
 ### Known limitations
 

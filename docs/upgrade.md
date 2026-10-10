@@ -22,6 +22,7 @@
 升级是套件级事务。任一核心文件替换、新旧文件增删或 manifest 写入失败时，升级器会自动从已验证备份恢复完整旧套件并复核结果；错误只报告仓库相对的 `.agent-harness-backups/`、随机隔离文件位置和“成功/失败”恢复结果，不回显底层异常、令牌或绝对宿主路径。自动恢复成功后可以修复故障原因并重试；恢复失败时停止操作，保留备份并人工恢复后运行 `doctor`。宿主 seed、配置和运行历史不会由升级覆盖。不要删除运行历史来绕过状态不兼容。
 
 从提交 `4727ca9` 安装的 `0.1.0` 套件使用纯文本 `.agent-harness-install`。升级器只在 marker 内容、历史 owned-file set、每个文件的 SHA-256 和模式都与已登记 baseline 一致时迁移；成功后进入 versioned JSON manifest，漂移时保留旧套件并拒绝迁移。新 format 可以登记不同的 owned-file set，因此合法新增和删除由版本化 schema 决定，而不是拿旧 manifest 与当前常量直接比较。
+format 3 增加 generated verifier runtime；format 1/2 的历史文件集合保持不变，旧安装仍按其原始 schema 验证后再升级。
 
 校验得到的 repository root `(st_dev, st_ino)` 会随 validated root 贯穿全部读写、备份与回滚；每次打开 root 都必须匹配，路径上的目录被普通目录替换也会失败关闭。目标仓库的原始绝对路径仍逐组件 no-follow，不能通过 repository root 或祖先 symlink 隐藏真实路径。
 

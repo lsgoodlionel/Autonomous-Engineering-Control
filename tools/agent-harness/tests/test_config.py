@@ -200,6 +200,21 @@ class ConfigTests(unittest.TestCase):
             with self.assertRaises(ConfigError):
                 load_protected_paths(self.write(self.policy))
 
+    def test_survey_capability_generator_configuration_shape_is_supported(self):
+        self.policy["rules"][0] = {
+            "id": "capability-map",
+            "patterns": ["platform/docs/productization/capability-map.md"],
+            "operations": ["add", "modify", "delete"],
+            "action": "generated",
+            "generator": ["python3", "platform/tools/productization/render_capabilities.py"],
+        }
+
+        policy = load_protected_paths(self.write(self.policy))
+
+        self.assertEqual(policy.rules[0].generator, (
+            "python3", "platform/tools/productization/render_capabilities.py",
+        ))
+
     def test_models_are_deeply_immutable(self):
         matrix = load_gate_matrix(self.write(self.matrix))
         policy = load_protected_paths(self.write(self.policy))

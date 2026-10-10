@@ -12,3 +12,4 @@ scripts/agent-harness init \
 ```
 
 `doctor` 还会根据当前核心版本检查必要配置与受控 Python。运行时需要 Python 3.11-3.14。
+宿主若增加 generated 路径，应使用配置参考中的参数数组形态；Harness 会在临时树重跑并绑定输入与输出摘要。

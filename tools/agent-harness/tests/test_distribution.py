@@ -25,6 +25,24 @@ class DistributionTests(unittest.TestCase):
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name).resolve()
 
+    def test_runtime_manifest_contains_every_core_python_module(self):
+        package = REPO / "tools/agent-harness/agent_harness"
+        modules = {
+            path.relative_to(REPO).as_posix()
+            for path in package.glob("*.py")
+        }
+        self.assertTrue(modules <= set(distribution.RUNTIME_FILES),
+                        modules - set(distribution.RUNTIME_FILES))
+
+    def test_generated_verifier_uses_a_new_manifest_file_set_version(self):
+        verifier = "tools/agent-harness/agent_harness/generated_verifier.py"
+
+        self.assertEqual(distribution.FORMAT_VERSION, 3)
+        self.assertNotIn(verifier, distribution.MANIFEST_FILE_SETS[2])
+        self.assertIn(verifier, distribution.MANIFEST_FILE_SETS[3])
+        self.assertEqual(distribution.MANIFEST_FILE_SETS[3],
+                         frozenset(distribution.RUNTIME_FILES))
+
     def git(self, repo, *args, check=True):
         return subprocess.run(["git", *args], cwd=repo, text=True,
                               capture_output=True, check=check)

@@ -11,7 +11,7 @@
 
 - CLI：`doctor/init/status/next/gate/record-decision/record-review/pause/resume/run-codex/finalize`，使用稳定退出码。
 - 状态与恢复：原子 `state.json`、摘要链接的 `events.jsonl`、Git 分支/HEAD/工作区漂移检测。
-- 策略与 Gate：按实际改动取 Gate 并集，禁止计划删减自动 Gate；路径逃逸、符号链接和未知路径均失败关闭。
+- 策略与 Gate：按实际改动取 Gate 并集，禁止计划删减自动 Gate；路径逃逸、符号链接和未知路径均失败关闭；generated 输出须在隔离树中确定性重生成并逐字节匹配。
 - 终止条件：同一失败指纹第 3 次、总失败周期第 5 次、连续第 2 轮无进展时暂停。
 - 诊断：原始输出只写 ignored runtime，提交摘要对 URL 凭据、Header、Token、JWT、私钥和命名秘密脱敏。
 - Codex：只在独立 worktree 中使用固定 `workspace-write` 参数数组；不接受权限绕过参数或任意执行器。
@@ -61,6 +61,12 @@ HEAD、工作区和工具环境。审批路径、真实秘密、依赖新增、�
 `GATE_MATRIX.yaml` 与 `PROTECTED_PATHS.yaml` 使用 JSON 语法（YAML 1.2 子集），无需 PyYAML。命令只能是非空
 字符串数组；加载器拒绝未知字段、重复 key/ID、无效引用、非正整数 timeout、绝对路径、Windows 路径与 `..`。
 原始运行目录必须是被 Git 忽略且未跟踪的 `var/agent-harness/runs/<UUID>/`。
+
+`generated.generator` 保持非空 argv 数组。实际变更命中 generated 规则时，Harness 以当前工作区全部已跟踪及未忽略
+未跟踪文件（排除该命令的目标输出和 `var/agent-harness/`）形成输入摘要，在临时目录重建输入树并用
+`shell=False`、净化环境和 120 秒硬上限执行；`HOME` 与常见 temp 变量被重定向到同一隔离根，允许的运行时 scratch 会随隔离根销毁。只有输出文件逐字节一致、输入摘要在执行期间未漂移、workspace 中没有
+目标外写入时，才记录 `generated_verification` 并继续 scope bind/Gate。stdout、stderr 与结构化 metadata 保存在
+当前 run 的 ignored evidence 目录；缺少 executable/script、非零退出、超时、输入漂移、输出缺失/不一致和越界写入均拒绝。
 
 `HARNESS_HOST.json.deliverySyncPaths` 使用精确仓库相对路径，不支持 glob；它只容纳计划、delivery manifest、
 ledger、状态文档和预先约定的 Markdown 审查报告。`check_docs` 验证 implementation commit 是 `HEAD` 祖先，并以

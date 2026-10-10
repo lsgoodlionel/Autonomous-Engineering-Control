@@ -21,6 +21,7 @@
 
 - 路径规范化后再匹配，拒绝绝对路径、父级逃逸、目录符号链接和不可解析目标。
 - Gate 使用固定参数数组和固定工作目录，不执行动态 Shell 字符串。
+- generated 命令只来自摘要绑定的路径策略，并在不含既有目标输出的临时输入树中以 `shell=False` 重跑；`HOME`/temp 被重定向到随运行销毁的隔离 scratch，输入漂移、输出字节不一致、workspace 目标外写入、缺失工具和超时均生成原始诊断并拒绝授权。
 - 状态采用原子写入；事件仅追加并使用前一摘要形成完整性链。
 - Git 快照绑定分支、HEAD 和工作区；HEAD 变化使验证证据失效。
 - delivery 同步逐 descendant commit 和每个 merge parent 检查 `implementationCommit..HEAD` 的 NUL 分隔路径；repository complete 只信任由限定 repository/workflow 对 manifest implementation archive 签发并经 `gh attestation verify` 验证的 GitHub artifact attestation。后续 docs HEAD 不被冒充为已签实现，也不信任环境变量自报。
@@ -36,6 +37,7 @@
 - 脱敏规则不能证明所有业务秘密形态都被覆盖。
 - 缺少自动测试时，状态机只能证明命令成功，不能证明业务正确。
 - 外部服务、包仓库和执行器存在供应链与可用性风险。
+- generated 临时树是仓库内容隔离与写集检测，不是 OS 级进程沙箱；登记生成器仍拥有当前账户权限，因此策略所有者必须审查生成器，禁止仓库外写入与不受控网络副作用。
 
 因此人工代码审查、分支保护、秘密管理、网络隔离、依赖审计和生产审批仍是必需控制。
 

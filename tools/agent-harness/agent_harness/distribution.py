@@ -16,7 +16,7 @@ import sys
 
 MANIFEST_PATH = ".agent-harness-install.json"
 LEGACY_MANIFEST_PATH = ".agent-harness-install"
-FORMAT_VERSION = 2
+FORMAT_VERSION = 3
 FORMAT_1_RUNTIME_FILES = (
     "scripts/agent-harness",
     "tools/agent-harness/agent_harness/__init__.py",
@@ -34,10 +34,14 @@ FORMAT_1_RUNTIME_FILES = (
     "tools/agent-harness/drills/run_drills.py",
     "tools/agent-harness/run_tests.py",
 )
-RUNTIME_FILES = FORMAT_1_RUNTIME_FILES
+FORMAT_2_RUNTIME_FILES = FORMAT_1_RUNTIME_FILES
+RUNTIME_FILES = FORMAT_2_RUNTIME_FILES + (
+    "tools/agent-harness/agent_harness/generated_verifier.py",
+)
 MANIFEST_FILE_SETS = {
     1: frozenset(FORMAT_1_RUNTIME_FILES),
-    2: frozenset(RUNTIME_FILES),
+    2: frozenset(FORMAT_2_RUNTIME_FILES),
+    3: frozenset(RUNTIME_FILES),
 }
 LEGACY_INSTALLS = {
     "0.1.0": (

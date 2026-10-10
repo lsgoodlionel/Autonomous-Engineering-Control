@@ -50,4 +50,8 @@ Gate 证据只对记录的 HEAD 有效。提交新修复后，旧证据必须失
 scripts/agent-harness --python tools/agent-harness/drills/run_drills.py
 ```
 
+其中 `generated-verification` drill 先验证确定性输出可以通过，再让同一生成器尝试写入未声明路径，确认该写入只发生在
+临时隔离树且验证以 `out_of_scope_write` 拒绝。生成失败的原始 stdout/stderr 与 metadata 位于当前 run 的
+`evidence/generated/`；公开 history 只记录脱敏失败分类。
+
 真实执行器 smoke 必须由人工显式批准，仅操作当前 HEAD 创建的 disposable worktree，并限制为一个 cycle。CI 不运行真实执行器 smoke。

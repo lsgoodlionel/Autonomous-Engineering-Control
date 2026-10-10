@@ -20,3 +20,4 @@
 3. 不包含个人目录、真实凭据、其他项目名称、commit 或交付状态。
 4. `/var/agent-harness/` 已加入 `.gitignore`。
 5. 已在独立 worktree 中运行 `doctor`、测试和 fake drills。
+6. 每条 `generated` 规则都使用精确 argv，生成器只读取仓库内可绑定输入且只写规则声明的输出。

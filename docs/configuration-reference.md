@@ -28,6 +28,23 @@ Profile 字段：`paths` 与 `gates`。引用的 Gate ID 必须存在且不得�
 - `action`：`deny`、`approval_required`、`review_required` 或 `generated`。
 - `generator`：仅 `generated` 必需，且为非空参数数组。
 
+生成器配置示例：
+
+```json
+{
+  "id": "generated-docs",
+  "patterns": ["docs/generated/capability-map.md"],
+  "operations": ["add", "modify", "delete"],
+  "action": "generated",
+  "generator": ["python3", "tools/render_capabilities.py"]
+}
+```
+
+`generator` 是唯一可执行命令来源，不接受计划、agent 输出或 CLI 临时覆盖。策略文件摘要在 `init` 时绑定；argv
+变化属于策略漂移。验证器复制当前工作区全部已跟踪和未忽略未跟踪输入，但故意不复制目标输出，防止 no-op 生成器
+借用现有文件通过。生成后逐字节比对当前工作区输出，并把输入摘要、输出 SHA-256、命令、超时与失败分类写入 ignored
+evidence。当前 schema 使用固定 120 秒生成超时，不提供运行时放宽字段。
+
 ## HARNESS_HOST.json
 
 顶层字段固定为：

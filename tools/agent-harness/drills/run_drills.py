@@ -35,7 +35,8 @@ sys.path.insert(0, str(HARNESS))
 from agent_harness.codex_adapter import CodexFailure, CodexResult, run_codex
 from agent_harness.diagnostics import record_failure, redact_text, render_diagnostics
 from agent_harness.doctor import run_doctor
-from agent_harness.git_guard import capture_snapshot, validate_resume
+from agent_harness.generated_verifier import verify_generated_outputs
+from agent_harness.git_guard import PathDecision, capture_snapshot, validate_resume
 from agent_harness.run_service import RunService
 from agent_harness.state import (
     AttemptState,
@@ -406,6 +407,47 @@ def _drill_codex_timeout() -> None:
             raise AssertionError("Codex timeout was not bounded and typed")
 
 
+def _drill_generated_verification() -> str:
+    with tempfile.TemporaryDirectory() as directory:
+        repo = Path(directory).resolve() / "repo"
+        repo.mkdir()
+        _git(repo, "init", "-b", "main")
+        _git(repo, "config", "user.email", "drill@example.invalid")
+        _git(repo, "config", "user.name", "Harness Drill")
+        source = repo / "input.txt"
+        renderer = repo / "render.py"
+        output = repo / "generated.txt"
+        source.write_text("bound\n", encoding="utf-8")
+        renderer.write_text(
+            "from pathlib import Path\n"
+            "Path('generated.txt').write_bytes(Path('input.txt').read_bytes())\n",
+            encoding="utf-8",
+        )
+        output.write_text("bound\n", encoding="utf-8")
+        _git(repo, "add", ".")
+        _git(repo, "commit", "-m", "generated drill fixture")
+        decision = PathDecision(
+            "generated.txt", "generated", ("generated",), "policy_rule",
+            (sys.executable, "render.py"),
+        )
+        evidence = repo / "var/agent-harness/runs/drill/evidence/generated"
+        valid, = verify_generated_outputs(repo, (decision,), evidence, timeout_seconds=5)
+        if not valid.passed:
+            raise AssertionError("exact generated output was rejected")
+        renderer.write_text(
+            "from pathlib import Path\n"
+            "Path('generated.txt').write_bytes(Path('input.txt').read_bytes())\n"
+            "Path('unexpected.txt').write_text('escape')\n",
+            encoding="utf-8",
+        )
+        refused, = verify_generated_outputs(repo, (decision,), evidence, timeout_seconds=5)
+        if refused.passed or refused.failure_kind != "out_of_scope_write":
+            raise AssertionError("out-of-scope generator write was accepted")
+        if (repo / "unexpected.txt").exists():
+            raise AssertionError("isolated generator modified the source worktree")
+        return "exact regeneration passed; isolated out-of-scope write refused"
+
+
 _DRILLS: dict[str, Callable[[], Optional[str]]] = {
     "success": _drill_success,
     "atomic-before-replace": _drill_atomic_before,
@@ -418,6 +460,7 @@ _DRILLS: dict[str, Callable[[], Optional[str]]] = {
     "repeated-gate-failure": _drill_repeated_gate_failure,
     "no-progress": _drill_no_progress,
     "codex-timeout": _drill_codex_timeout,
+    "generated-verification": _drill_generated_verification,
 }
 
 

@@ -2,4 +2,4 @@
 
 <!-- harness-delivery-status: not_started -->
 
-验证仓库、独立 worktree、计划摘要和当前 HEAD 后，只修改计划列出的 fixture。质量门失败时在预算内修复；计划漂移、路径越界、权限问题或无进展时暂停。当前 HEAD 的全部必需 Gate 通过后才能完成。
+验证仓库、独立 worktree、计划摘要和当前 HEAD 后，只修改计划列出的 fixture。generated 路径只有在临时树重生成与当前输出逐字节一致后才能进入 Gate。质量门失败时在预算内修复；计划漂移、路径越界、权限问题或无进展时暂停。当前 HEAD 的全部必需 Gate 通过后才能完成。

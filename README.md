@@ -53,6 +53,7 @@ scripts/agent-harness finalize --run-id <run-id>
 - 配置失败关闭；未知字段、路径逃逸、符号链接逃逸和歧义命令均拒绝。
 - 安装、升级和卸载对原始目标绝对路径逐组件 no-follow，并在每次 root open 复核 repository inode；versioned JSON manifest 绑定套件文件的路径、模式、SHA-256 与已登记文件集合。replace/unlink 通过同父目录 quarantine rename 验证 descriptor identity；因 POSIX 没有 inode-bound unlink，已验证的随机私有项保留并报告，绝不冒险删除并发换入的宿主文件。
 - Gate 使用参数数组，不把计划、日志或模型输出拼接为 Shell 命令。
+- `generated` 路径只接受策略中登记的固定 argv；Harness 在临时隔离树中从当前工作区的绑定输入重跑生成器，输出字节一致且没有越界仓库写入后才允许进入 Gate。
 - 同一失败指纹最多自动修复 3 次；单 Milestone 最多 5 个失败周期；连续 2 轮无进展即暂停。
 - HEAD 改变后旧 Gate 证据失效；只有当前 HEAD 的必需 Gate 全部通过才可完成。
 - delivery 同步逐 commit/parent 检查 `implementationCommit..HEAD` 路径历史；repository complete 只验证 GitHub Actions 为 manifest 指定的真实实现提交生成的签名 artifact attestation，后续 HEAD 只能包含 allowlist 内的文档同步，本地环境变量不能充当身份。

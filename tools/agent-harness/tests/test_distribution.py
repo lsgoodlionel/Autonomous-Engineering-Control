@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import tempfile
@@ -45,6 +46,22 @@ class DistributionTests(unittest.TestCase):
                               text=True, capture_output=True, check=False,
                               env={**os.environ, "TZ": "UTC"})
 
+    def installed_suite(self, repo):
+        manifest_path = repo / MANIFEST
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        files = {
+            entry["path"]: (repo / entry["path"]).read_bytes()
+            for entry in manifest["ownedFiles"]
+        }
+        return manifest_path.read_bytes(), files
+
+    def add_baseline_checkout(self):
+        checkout = self.root / "baseline-4727ca9"
+        self.git(REPO, "worktree", "add", "--detach", str(checkout), "4727ca9")
+        self.addCleanup(lambda: self.git(REPO, "worktree", "remove", "--force", str(checkout),
+                                         check=False))
+        return checkout
+
     def test_install_accepts_linked_worktree_and_seeds_complete_host_contract(self):
         primary = self.repository("primary")
         linked = self.root / "linked"
@@ -61,7 +78,7 @@ class DistributionTests(unittest.TestCase):
         for relative in referenced:
             self.assertTrue((linked / relative).is_file(), relative)
         manifest = json.loads((linked / MANIFEST).read_text())
-        self.assertEqual(manifest["formatVersion"], 1)
+        self.assertEqual(manifest["formatVersion"], distribution.FORMAT_VERSION)
         self.assertTrue(manifest["ownedFiles"])
         for entry in manifest["ownedFiles"]:
             path = linked / entry["path"]
@@ -122,6 +139,183 @@ class DistributionTests(unittest.TestCase):
         linked = self.run_script("upgrade.sh", repo)
         self.assertEqual(linked.returncode, 3)
         self.assertEqual(list(outside.iterdir()), [])
+
+    def test_upgrade_migrates_real_4727ca9_install_to_json_manifest(self):
+        baseline = self.add_baseline_checkout()
+        repo = self.repository()
+
+        installed = subprocess.run([str(baseline / "install.sh"), str(repo)], cwd=baseline,
+                                   text=True, capture_output=True, check=False)
+        self.assertEqual(installed.returncode, 0, installed.stderr)
+        self.assertTrue((repo / ".agent-harness-install").is_file())
+
+        upgraded = self.run_script("upgrade.sh", repo)
+
+        self.assertEqual(upgraded.returncode, 0, upgraded.stderr)
+        self.assertFalse((repo / ".agent-harness-install").exists())
+        manifest = json.loads((repo / MANIFEST).read_text(encoding="utf-8"))
+        self.assertEqual(manifest["formatVersion"], distribution.FORMAT_VERSION)
+        self.assertEqual({entry["path"] for entry in manifest["ownedFiles"]},
+                         set(distribution.RUNTIME_FILES))
+
+    def test_upgrade_rejects_regular_file_swap_after_verification_for_replace_and_unlink(self):
+        for operation in ("replace", "unlink"):
+            with self.subTest(operation=operation):
+                repo = self.repository("host-race-" + operation)
+                self.assertEqual(self.run_script("install.sh", repo).returncode, 0)
+                manifest = json.loads((repo / MANIFEST).read_text(encoding="utf-8"))
+                target_relative = ("tools/agent-harness/agent_harness/cli.py" if operation == "replace"
+                                   else "tools/agent-harness/agent_harness/doctor.py")
+                target = repo / target_relative
+                real_verify = distribution._verify_owned
+                swapped = False
+                verify_calls = 0
+
+                def verify_then_swap(root, entries):
+                    nonlocal swapped, verify_calls
+                    identities = real_verify(root, entries)
+                    verify_calls += 1
+                    if not swapped and verify_calls == 2:
+                        replacement = target.with_name(target.name + ".replacement")
+                        replacement.write_text("host replacement\n", encoding="utf-8")
+                        replacement.chmod(target.stat().st_mode & 0o777)
+                        os.replace(replacement, target)
+                        swapped = True
+                    return identities
+
+                inventory = distribution._source_inventory(REPO)
+                if operation == "unlink":
+                    inventory = [(entry, content) for entry, content in inventory
+                                 if entry["path"] != target_relative]
+                with mock.patch.object(distribution, "_verify_owned", side_effect=verify_then_swap), \
+                        mock.patch.object(distribution, "_source_inventory", return_value=inventory):
+                    with self.assertRaises(distribution.DistributionError):
+                        distribution.upgrade(REPO, repo)
+
+                self.assertTrue(swapped)
+                self.assertEqual(target.read_text(encoding="utf-8"), "host replacement\n")
+                self.assertTrue((repo / MANIFEST).is_file())
+
+    def test_manifest_schema_allows_new_version_to_add_and_remove_owned_files(self):
+        repo = self.repository()
+        self.assertEqual(self.run_script("install.sh", repo).returncode, 0)
+        old_manifest = json.loads((repo / MANIFEST).read_text(encoding="utf-8"))
+        old_paths = {entry["path"] for entry in old_manifest["ownedFiles"]}
+        removed = "tools/agent-harness/agent_harness/doctor.py"
+        added = "tools/agent-harness/agent_harness/new_runtime.py"
+        inventory = [item for item in distribution._source_inventory(REPO)
+                     if item[0]["path"] != removed]
+        added_content = b"VALUE = 'new runtime'\n"
+        inventory.append((distribution._entry(added, added_content, 0o644), added_content))
+        new_paths = old_paths - {removed} | {added}
+
+        old_format = old_manifest["formatVersion"]
+        new_format = old_format + 1
+        schema_state = {
+            "FORMAT_VERSION": new_format,
+            "MANIFEST_FILE_SETS": {
+                old_format: frozenset(old_paths), new_format: frozenset(new_paths),
+            },
+        }
+        with mock.patch.dict(distribution.__dict__, schema_state), \
+                mock.patch.object(distribution, "_source_inventory", return_value=inventory):
+            try:
+                distribution.upgrade(REPO, repo)
+                loaded = distribution._load_manifest(repo)
+            except distribution.DistributionError as error:
+                self.fail(f"versioned ownership schema rejected a legal inventory change: {error}")
+
+        self.assertEqual(loaded[0]["formatVersion"], new_format)
+        self.assertEqual({entry["path"] for entry in loaded[0]["ownedFiles"]}, new_paths)
+        self.assertFalse((repo / removed).exists())
+        self.assertEqual((repo / added).read_bytes(), added_content)
+
+    def test_upgrade_rejects_original_target_root_or_ancestor_symlink(self):
+        for kind in ("root", "ancestor"):
+            with self.subTest(kind=kind):
+                parent = self.root / ("real-parent-" + kind)
+                parent.mkdir()
+                repo = parent / "host"
+                repo.mkdir()
+                self.git(repo, "init", "-b", "main")
+                self.git(repo, "config", "user.email", "harness@example.invalid")
+                self.git(repo, "config", "user.name", "Harness Test")
+                (repo / "host.txt").write_text("host\n", encoding="utf-8")
+                self.git(repo, "add", "host.txt")
+                self.git(repo, "commit", "-m", "host fixture")
+                self.assertEqual(self.run_script("install.sh", repo).returncode, 0)
+                if kind == "root":
+                    target = self.root / "host-link"
+                    target.symlink_to(repo, target_is_directory=True)
+                else:
+                    alias = self.root / "parent-link"
+                    alias.symlink_to(parent, target_is_directory=True)
+                    target = alias / "host"
+
+                result = self.run_script("upgrade.sh", target)
+
+                self.assertEqual(result.returncode, 2, result.stderr or result.stdout)
+
+    def test_upgrade_rolls_back_complete_suite_after_runtime_or_manifest_replace_failure(self):
+        for failed_path in ("tools/agent-harness/agent_harness/cli.py", MANIFEST):
+            with self.subTest(failed_path=failed_path):
+                repo = self.repository("host-" + failed_path.replace("/", "-"))
+                self.assertEqual(self.run_script("install.sh", repo).returncode, 0)
+                old_manifest, old_files = self.installed_suite(repo)
+                real_replace = distribution._replace
+                injected = False
+
+                def fail_once(root, relative, content, mode, **kwargs):
+                    nonlocal injected
+                    if relative == failed_path and not injected:
+                        injected = True
+                        raise distribution.DistributionError("injected replace failure")
+                    return real_replace(root, relative, content, mode, **kwargs)
+
+                with mock.patch.object(distribution, "_replace", side_effect=fail_once):
+                    with self.assertRaises(distribution.DistributionError) as raised:
+                        distribution.upgrade(REPO, repo)
+
+                self.assertTrue(injected)
+                self.assertIn("恢复结果：成功", str(raised.exception))
+                self.assertRegex(str(raised.exception),
+                                 r"备份位置：\.agent-harness-backups/[0-9TZ-]+")
+                self.assertNotIn(str(repo), str(raised.exception))
+                restored_manifest, restored_files = self.installed_suite(repo)
+                self.assertEqual(restored_manifest, old_manifest)
+                self.assertEqual(restored_files, old_files)
+
+                distribution.upgrade(REPO, repo)
+                retried_manifest, retried_files = self.installed_suite(repo)
+                self.assertEqual(retried_manifest, old_manifest)
+                self.assertEqual(retried_files, old_files)
+
+    def test_upgrade_reports_failed_rollback_and_keeps_verified_backup(self):
+        repo = self.repository()
+        self.assertEqual(self.run_script("install.sh", repo).returncode, 0)
+        real_replace = distribution._replace
+        calls = 0
+
+        def fail_upgrade_and_restore(root, relative, content, mode, **kwargs):
+            nonlocal calls
+            calls += 1
+            if calls in (2, 3):
+                raise distribution.DistributionError("injected transaction failure")
+            return real_replace(root, relative, content, mode, **kwargs)
+
+        with mock.patch.object(distribution, "_replace", side_effect=fail_upgrade_and_restore):
+            with self.assertRaises(distribution.DistributionError) as raised:
+                distribution.upgrade(REPO, repo)
+
+        message = str(raised.exception)
+        self.assertIn("恢复结果：失败", message)
+        match = re.search(r"备份位置：(\.agent-harness-backups/[^；]+)", message)
+        self.assertIsNotNone(match)
+        backup = repo / match.group(1)
+        backup_manifest = json.loads((backup / MANIFEST).read_text(encoding="utf-8"))
+        for entry in backup_manifest["ownedFiles"]:
+            content = (backup / entry["path"]).read_bytes()
+            self.assertEqual(hashlib.sha256(content).hexdigest(), entry["sha256"])
 
     def test_uninstall_only_deletes_hash_matching_owned_files(self):
         repo = self.repository()
@@ -223,6 +417,16 @@ class DistributionTests(unittest.TestCase):
 
         self.assertTrue(swapped)
         self.assertFalse((outside / "agent-harness/agent_harness/new.py").exists())
+
+    def test_write_new_removes_unpublished_file_when_write_fails(self):
+        repo = self.repository()
+        relative = "tools/agent-harness/agent_harness/new.py"
+        with mock.patch.object(distribution.os, "fsync",
+                               side_effect=OSError("injected publication failure")):
+            with self.assertRaises(distribution.DistributionError):
+                distribution._write_new(repo, relative, b"owned\n", 0o644)
+
+        self.assertFalse((repo / relative).exists())
 
     def test_prune_cannot_remove_outside_directory_after_ancestor_swap(self):
         repo = self.repository()

@@ -457,21 +457,40 @@ def load_host_config(repo: Path, relative: Path = _DEFAULT_HOST_CONFIG) -> dict:
     path = _repo_path(root, Path(relative).as_posix())
     try:
         document = json.loads(path.read_text(encoding="utf-8"))
-        required = {"version", "activePlan", "deliveryManifest", "ledger", "secretPolicy",
-                    "fixture", "documentation"}
+        required = {"version", "activePlan", "deliveryManifest", "deliverySyncPaths", "ledger",
+                    "secretPolicy", "fixture", "documentation"}
         if set(document) != required or document["version"] != 1:
             raise ValueError()
         policy = document["secretPolicy"]
         fixture = document["fixture"]
         docs = document["documentation"]
+        sync_paths = document["deliverySyncPaths"]
         if (set(policy) != {"patterns", "allowlist"}
                 or not all(isinstance(value, str) and value for value in (*policy["patterns"], *policy["allowlist"]))
                 or set(fixture) != {"path", "planPath", "baseline", "expected"}
-                or not isinstance(docs.get("statusMarkerPaths"), list)):
+                or not isinstance(docs.get("statusMarkerPaths"), list)
+                or not isinstance(sync_paths, list) or not sync_paths
+                or not all(isinstance(value, str) and value for value in sync_paths)
+                or len(set(sync_paths)) != len(sync_paths)):
             raise ValueError()
         for value in (document["activePlan"], document["deliveryManifest"], document["ledger"],
                       fixture["path"], fixture["planPath"], *docs["statusMarkerPaths"]):
             _repo_path(root, value, must_exist=False)
+        contract_docs = {
+            document["activePlan"], document["deliveryManifest"], document["ledger"],
+            *docs["statusMarkerPaths"],
+        }
+        for value in sync_paths:
+            _repo_path(root, value, must_exist=False)
+            if any(character in value for character in "*?[]"):
+                raise ValueError()
+            if value not in contract_docs:
+                review_path = Path(value)
+                if (review_path.suffix.lower() != ".md"
+                        or review_path.parts[0] not in {"docs", "reviews"}):
+                    raise ValueError()
+        if not contract_docs.issubset(sync_paths):
+            raise ValueError()
         plan_root = Path("docs/superpowers/plans")
         if (not Path(document["activePlan"]).is_relative_to(plan_root)
                 or not Path(fixture["planPath"]).is_relative_to(plan_root)):
@@ -1057,6 +1076,17 @@ def check_docs(repo: Path, host: dict) -> None:
                 raise ValueError()
             commit_check = _run(["git", "cat-file", "-e", commit + "^{commit}"], root, check=False)
             if commit_check.returncode:
+                raise ValueError()
+            ancestor = _run(["git", "merge-base", "--is-ancestor", commit, "HEAD"], root,
+                            check=False)
+            changed = _run(
+                ["git", "diff", "--name-only", "--no-renames", "-z", commit + "..HEAD", "--"],
+                root,
+                check=False,
+            )
+            if (ancestor.returncode or changed.returncode
+                    or any(path not in host["deliverySyncPaths"]
+                           for path in changed.stdout.split("\0") if path)):
                 raise ValueError()
         _validate_review_evidence(root, manifest, not bootstrap and external.get("independentReview") == "complete")
         ledger = ledger_path.read_text(encoding="utf-8")

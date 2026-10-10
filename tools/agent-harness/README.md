@@ -21,6 +21,10 @@
 hardened hosted toolcache 或严格权限的 uv runtime，默认 group-write 的 Homebrew prefix 不属于 Python 信任根。
 Node、Java、Docker、Codex 是否必需由宿主 Gate 与实际 Milestone 决定。
 
+distribution manager 对原始 target 绝对路径逐组件 no-follow，并把 checksum/mode 校验所得 descriptor identity
+绑定到 replace/unlink。manifest format 对应代码内登记的精确 owned-file set；升级可安全读取旧 schema，并从
+`4727ca9` 的 `0.1.0` 纯文本 marker 在完整哈希校验后迁移到 JSON。新 schema 可以显式增加或删除 owned files。
+
 仓库根常用命令：
 
 ```sh
@@ -57,6 +61,10 @@ HEAD、工作区和工具环境。审批路径、真实秘密、依赖新增、�
 `GATE_MATRIX.yaml` 与 `PROTECTED_PATHS.yaml` 使用 JSON 语法（YAML 1.2 子集），无需 PyYAML。命令只能是非空
 字符串数组；加载器拒绝未知字段、重复 key/ID、无效引用、非正整数 timeout、绝对路径、Windows 路径与 `..`。
 原始运行目录必须是被 Git 忽略且未跟踪的 `var/agent-harness/runs/<UUID>/`。
+
+`HARNESS_HOST.json.deliverySyncPaths` 使用精确仓库相对路径，不支持 glob；它只容纳计划、delivery manifest、
+ledger、状态文档和预先约定的 Markdown 审查报告。`check_docs` 验证 implementation commit 是 `HEAD` 祖先，并拒绝
+该提交之后出现任何源码、配置或未列路径。exact-head CI 证据必须等实际推送后再记录。
 
 ## 宿主集成
 

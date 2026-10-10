@@ -46,8 +46,8 @@ def _host_references(root):
         if not _regular_path(root, path):
             raise ValueError()
         document = json.loads(path.read_text(encoding="utf-8"))
-        required = {"version", "activePlan", "deliveryManifest", "ledger", "secretPolicy",
-                    "fixture", "documentation"}
+        required = {"version", "activePlan", "deliveryManifest", "deliverySyncPaths", "ledger",
+                    "secretPolicy", "fixture", "documentation"}
         fixture = document["fixture"]
         documentation = document["documentation"]
         policy = document["secretPolicy"]
@@ -55,15 +55,27 @@ def _host_references(root):
                 or set(fixture) != {"path", "planPath", "baseline", "expected"}
                 or set(documentation) != {"statusMarkerPaths"}
                 or set(policy) != {"patterns", "allowlist"}
-                or not isinstance(documentation["statusMarkerPaths"], list)):
+                or not isinstance(documentation["statusMarkerPaths"], list)
+                or not isinstance(document["deliverySyncPaths"], list)
+                or not document["deliverySyncPaths"]
+                or len(set(document["deliverySyncPaths"])) != len(document["deliverySyncPaths"])):
             raise ValueError()
         values = (document["activePlan"], document["deliveryManifest"], document["ledger"],
                   fixture["path"], fixture["planPath"], *documentation["statusMarkerPaths"])
-        for value in values:
+        sync_paths = document["deliverySyncPaths"]
+        contract_docs = set(values[:3]) | set(documentation["statusMarkerPaths"])
+        for value in (*values, *sync_paths):
             if (not isinstance(value, str) or not value or "\\" in value
                     or PurePosixPath(value).is_absolute() or ".." in PurePosixPath(value).parts
                     or PurePosixPath(value).as_posix() != value):
                 raise ValueError()
+        if (not contract_docs.issubset(sync_paths)
+                or any(any(character in value for character in "*?[]")
+                       or (value not in contract_docs
+                           and (PurePosixPath(value).suffix.lower() != ".md"
+                                or PurePosixPath(value).parts[0] not in {"docs", "reviews"}))
+                       for value in sync_paths)):
+            raise ValueError()
         plan_root = PurePosixPath("docs/superpowers/plans")
         if (not PurePosixPath(document["activePlan"]).is_relative_to(plan_root)
                 or not PurePosixPath(fixture["planPath"]).is_relative_to(plan_root)):

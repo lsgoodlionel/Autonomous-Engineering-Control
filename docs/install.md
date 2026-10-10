@@ -13,8 +13,8 @@
 
 1. 在目标项目建立专用分支；目标可以是主检出目录或 linked worktree。
 2. 从经过校验的 Release 制品运行 `./install.sh <目标仓库>`。
-3. 安装器逐级拒绝 `scripts/`、`tools/`、manifest 和宿主 seed 路径中的 symlink；任何已有核心目标文件都会使安装失败。
-4. 安装器生成 `.agent-harness-install.json`，记录每个套件拥有文件的路径、模式和 SHA-256；缺失的宿主模板、active plan、delivery、ledger 与 smoke fixture 会完整 seed，已有普通宿主文件保持不变。
+3. 安装器从调用方提供的原始绝对目标路径开始逐组件 no-follow；repository root、任一祖先、`scripts/`、`tools/`、manifest 和宿主 seed 路径中的 symlink 都会被拒绝。任何已有核心目标文件都会使安装失败。
+4. 安装器生成 versioned `.agent-harness-install.json`，记录每个套件拥有文件的路径、模式和 SHA-256；manifest format 对应一个代码内登记的精确 owned-file set，不能用当前版本的文件集合误判旧 manifest，也不能通过篡改 manifest 认领宿主文件。缺失的宿主模板、active plan、delivery、ledger 与 smoke fixture 会完整 seed，已有普通宿主文件保持不变。
 5. 按 [宿主接入](host-integration.md) 替换占位内容，并创建已批准计划。
 6. 将 `/var/agent-harness/` 加入宿主 `.gitignore`。
 7. 先提交并审查核心与宿主策略，再运行 `doctor`。核心会校验已跟踪 wrapper，并检查 `HARNESS_HOST.json` 引用的全部文件。

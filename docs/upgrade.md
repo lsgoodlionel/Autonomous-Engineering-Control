@@ -12,14 +12,18 @@
 2. 确认工作区归属，备份套件拥有文件、宿主配置和需要保留的脱敏证据索引。
 3. 下载 Release 制品及 `SHA256SUMS`，独立验证校验和和签名信息。
 4. 在临时仓库运行安装、`doctor`、完整测试、fake drills 和卸载 smoke。
-5. 在专用升级分支运行 `./upgrade.sh <目标仓库>`。升级先验证 manifest schema、每个旧文件的路径、模式和 SHA-256，再备份并原子替换；任何漂移或 symlink 都会拒绝。
+5. 在专用升级分支运行 `./upgrade.sh <目标仓库>`。升级先按旧 manifest 自身的 format/version 验证精确文件集合，再用同一 descriptor 校验每个旧文件的模式和 SHA-256；之后备份并复核完整旧套件（包括 ownership manifest），才开始替换。
 6. 对照 `CHANGELOG.md` 与配置迁移说明手工合并模板差异。
 7. 运行 `doctor`、相关 Gate 和 `git diff --check`，经 Review 后提交。
 8. 对暂停运行重新核对计划与 HEAD；不兼容时创建新运行。
 
 ## 回滚
 
-若升级验证失败，使用输出的 `.agent-harness-backups/` 路径恢复升级前核心版本，再运行 `doctor`。宿主 seed、配置和运行历史不会由升级覆盖。不要删除运行历史来绕过状态不兼容；保留失败诊断并按版本报告问题。
+升级是套件级事务。任一核心文件替换、新旧文件增删或 manifest 写入失败时，升级器会自动从已验证备份恢复完整旧套件并复核结果；错误只报告仓库相对的 `.agent-harness-backups/` 位置和“成功/失败”恢复结果，不回显底层异常或绝对宿主路径。自动恢复成功后可以修复故障原因并重试；恢复失败时停止操作，保留备份并人工恢复后运行 `doctor`。宿主 seed、配置和运行历史不会由升级覆盖。不要删除运行历史来绕过状态不兼容。
+
+从提交 `4727ca9` 安装的 `0.1.0` 套件使用纯文本 `.agent-harness-install`。升级器只在 marker 内容、历史 owned-file set、每个文件的 SHA-256 和模式都与已登记 baseline 一致时迁移；成功后进入 versioned JSON manifest，漂移时保留旧套件并拒绝迁移。新 format 可以登记不同的 owned-file set，因此合法新增和删除由版本化 schema 决定，而不是拿旧 manifest 与当前常量直接比较。
+
+校验得到的 `(st_dev, st_ino)` 会贯穿后续 replace/unlink；如果普通文件在校验后被换入，事务拒绝覆盖或删除该 inode，回滚也不会覆盖外部换入文件。目标仓库的原始绝对路径会逐组件 no-follow，不能通过 repository root 或祖先 symlink 隐藏真实路径。
 
 ## 兼容性
 

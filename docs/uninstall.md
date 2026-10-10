@@ -18,6 +18,8 @@ manifest 可以删除的套件核心：
 
 卸载在发生任何删除前验证全部 owned entry 的安全相对路径、普通文件类型、模式和 SHA-256。任一文件缺失、被修改或任一路径组件为 symlink 时整体拒绝；成功后只删除逐项验证过的文件和 manifest，并只清理空目录。
 
+模式与摘要从同一打开的 descriptor 读取，后续 unlink 还必须匹配同一 `(st_dev, st_ino)`；校验后被替换的普通文件不会被删除。历史 JSON manifest 按自身 format 的精确 file-set schema 校验，不能由当前版本文件集合决定其合法性。
+
 默认保留：
 
 - 宿主 `AGENTS.md`

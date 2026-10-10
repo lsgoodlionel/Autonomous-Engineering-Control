@@ -89,7 +89,7 @@ class DistributionTests(unittest.TestCase):
 
     def test_install_upgrade_and_uninstall_preserve_host_state(self):
         with tempfile.TemporaryDirectory() as directory:
-            host = Path(directory) / "host"
+            host = Path(directory).resolve() / "host"
             host.mkdir()
             subprocess.run(["git", "init", "-b", "main"], cwd=host,
                            capture_output=True, check=True)

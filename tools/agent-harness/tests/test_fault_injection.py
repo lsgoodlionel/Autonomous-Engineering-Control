@@ -882,6 +882,12 @@ class FaultInjectionTests(unittest.TestCase):
                 "version": 1,
                 "activePlan": "docs/superpowers/plans/custom.md",
                 "deliveryManifest": "docs/DELIVERY.json",
+                "deliverySyncPaths": [
+                    ".sdd/progress.md", "AGENTS.md", "README.md", "docs/AUTONOMY.md",
+                    "docs/DELIVERY.json", "docs/MEMORY.md",
+                    "docs/superpowers/plans/custom.md", "reviews/dx_ci.md",
+                    "reviews/security.md", "reviews/whole_branch.md",
+                ],
                 "ledger": ".sdd/progress.md",
                 "secretPolicy": self.secret_policy(),
                 "fixture": {"path": "fixture.txt", "planPath": "docs/superpowers/plans/smoke.md",
@@ -958,6 +964,43 @@ class FaultInjectionTests(unittest.TestCase):
                             encoding="utf-8")
             with self.assertRaises(self.runner.DrillRefused):
                 self.runner.check_docs(repo, host)
+            plan.write_text(plan.read_text(encoding="utf-8").replace("- [x] sync", "- [ ] sync"),
+                            encoding="utf-8")
+            source = repo / "src/product.py"
+            source.parent.mkdir()
+            source.write_text("print('new product behavior')\n", encoding="utf-8")
+            subprocess.run(["git", "add", "src/product.py"], cwd=repo, check=True,
+                           capture_output=True)
+            subprocess.run(["git", "commit", "-m", "product change after evidence"], cwd=repo,
+                           check=True, capture_output=True)
+            with self.assertRaises(self.runner.DrillRefused):
+                self.runner.check_docs(repo, host)
+
+    def test_host_config_rejects_source_or_config_delivery_sync_paths(self):
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory)
+            (repo / "docs").mkdir()
+            base = {
+                "version": 1,
+                "activePlan": "docs/superpowers/plans/active.md",
+                "deliveryManifest": "docs/DELIVERY.json",
+                "ledger": "docs/progress.md",
+                "secretPolicy": self.secret_policy(),
+                "fixture": {"path": "fixture.txt", "planPath": "docs/superpowers/plans/smoke.md",
+                            "baseline": "baseline\n", "expected": "baseline\nok\n"},
+                "documentation": {"statusMarkerPaths": ["README.md"]},
+            }
+            config = repo / "docs/HOST.json"
+            valid_sync = [
+                "README.md", "docs/DELIVERY.json", "docs/progress.md",
+                "docs/superpowers/plans/active.md",
+            ]
+            for unsafe in ("src/product.py", "src/product.md", "config/settings.json", "docs/**"):
+                with self.subTest(unsafe=unsafe):
+                    document = dict(base, deliverySyncPaths=[*valid_sync, unsafe])
+                    config.write_text(json.dumps(document), encoding="utf-8")
+                    with self.assertRaises(self.runner.DrillRefused):
+                        self.runner.load_host_config(repo, config.relative_to(repo))
 
     def test_host_config_rejects_fixture_plan_outside_authoritative_root(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -968,6 +1011,7 @@ class FaultInjectionTests(unittest.TestCase):
                 "version": 1,
                 "activePlan": "docs/superpowers/plans/active.md",
                 "deliveryManifest": "docs/DELIVERY.json",
+                "deliverySyncPaths": ["README.md", "docs/DELIVERY.json"],
                 "ledger": "docs/progress.md",
                 "secretPolicy": self.secret_policy(),
                 "fixture": {"path": "fixture.txt", "planPath": "plans/smoke.md",
@@ -996,6 +1040,11 @@ class FaultInjectionTests(unittest.TestCase):
                 "version": 1,
                 "activePlan": "docs/superpowers/plans/portable.md",
                 "deliveryManifest": "docs/agent/PORTABLE_DELIVERY.json",
+                "deliverySyncPaths": [
+                    "README.md", "docs/agent/AUTONOMY.md",
+                    "docs/agent/PORTABLE_DELIVERY.json", "docs/agent/portable-progress.md",
+                    "docs/superpowers/plans/portable.md",
+                ],
                 "ledger": "docs/agent/portable-progress.md",
                 "secretPolicy": self.secret_policy(),
                 "fixture": {"path": "fixtures/smoke.txt",

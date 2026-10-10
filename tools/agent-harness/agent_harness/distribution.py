@@ -13,8 +13,9 @@ import sys
 
 
 MANIFEST_PATH = ".agent-harness-install.json"
-FORMAT_VERSION = 1
-RUNTIME_FILES = (
+LEGACY_MANIFEST_PATH = ".agent-harness-install"
+FORMAT_VERSION = 2
+FORMAT_1_RUNTIME_FILES = (
     "scripts/agent-harness",
     "tools/agent-harness/agent_harness/__init__.py",
     "tools/agent-harness/agent_harness/cli.py",
@@ -31,6 +32,29 @@ RUNTIME_FILES = (
     "tools/agent-harness/drills/run_drills.py",
     "tools/agent-harness/run_tests.py",
 )
+RUNTIME_FILES = FORMAT_1_RUNTIME_FILES
+MANIFEST_FILE_SETS = {
+    1: frozenset(FORMAT_1_RUNTIME_FILES),
+    2: frozenset(RUNTIME_FILES),
+}
+LEGACY_INSTALLS = {
+    "0.1.0": (
+        {"path": "scripts/agent-harness", "sha256": "622892b4b85db241ba84aee366356119af7805c247bb2e54d081751177f919ad", "mode": "0755"},
+        {"path": "tools/agent-harness/agent_harness/__init__.py", "sha256": "3f4ce49ac24b7bea685abb974abcbc7884ed4b36305d10ad79d8a11be313bc3a", "mode": "0644"},
+        {"path": "tools/agent-harness/agent_harness/cli.py", "sha256": "23a4984c49d3458acc67f94020a98e947c53c48b14fb665a531655a42249614e", "mode": "0644"},
+        {"path": "tools/agent-harness/agent_harness/codex_adapter.py", "sha256": "e34fa147a161ffcac113f62ded256502a9690d321c905a597300523356c8580a", "mode": "0644"},
+        {"path": "tools/agent-harness/agent_harness/codex_response.schema.json", "sha256": "3bfa713c51433c6ac896923af21aa1be84412565e0fb0fbf06847f04e41a8313", "mode": "0644"},
+        {"path": "tools/agent-harness/agent_harness/config.py", "sha256": "e3770f41a10b8d691de629e0345e809039e4d5220e75c00f63f1b9278993d221", "mode": "0644"},
+        {"path": "tools/agent-harness/agent_harness/diagnostics.py", "sha256": "a76dd6b8c3ff431b8571b7d0f78b44760c05c4bfb4be71b9d67de609f3e311be", "mode": "0644"},
+        {"path": "tools/agent-harness/agent_harness/doctor.py", "sha256": "cbc85ad50a6a75cbfc5ec63051626c2d974c830b162a0dfbf5d4ae73c8f5463d", "mode": "0644"},
+        {"path": "tools/agent-harness/agent_harness/gate_runner.py", "sha256": "a40fd94a37a5c019ebb4c5d343d61ef81d29134f59bcc220e5338962e95756d5", "mode": "0644"},
+        {"path": "tools/agent-harness/agent_harness/git_guard.py", "sha256": "a284484e6c3e2812fb0823605f980d5aae75547451cdbded0f415bb3a4dc57a5", "mode": "0644"},
+        {"path": "tools/agent-harness/agent_harness/run_service.py", "sha256": "8dc3bac2b51a957fadbcbd888f56a8def63bcaca38281544c339f42e17cc918f", "mode": "0644"},
+        {"path": "tools/agent-harness/agent_harness/state.py", "sha256": "6a9acc1663e2db2212fe01844d6a3b4594ea8703ad78a5db8752fcb4d9483f16", "mode": "0644"},
+        {"path": "tools/agent-harness/drills/run_drills.py", "sha256": "abae018a97447890c9be99068adf1d21ea64f1261684e6ab9c22a50539397e58", "mode": "0644"},
+        {"path": "tools/agent-harness/run_tests.py", "sha256": "97736bec9c2962ba3c0b6f03b99fe9fde3cfe32d0b32fd2ee9c51370311018eb", "mode": "0644"},
+    ),
+}
 HOST_SEED_FILES = (
     "AGENTS.md",
     "docs/agent/AUTONOMY.md",
@@ -66,13 +90,50 @@ def _relative(value):
     return path
 
 
+def _absolute_target(value):
+    if (not isinstance(value, str) or not value.startswith("/") or "\x00" in value
+            or "\\" in value or value.endswith("/") or "//" in value
+            or any(part in ("", ".", "..") for part in value.split("/")[1:])):
+        raise DistributionError("目标必须使用无符号链接的规范绝对路径", 2)
+    path = PurePosixPath(value)
+    if not path.is_absolute() or path.as_posix() != value:
+        raise DistributionError("目标必须使用无符号链接的规范绝对路径", 2)
+    return path
+
+
+def _open_directory_nofollow(path):
+    pure = _absolute_target(Path(path).as_posix())
+    descriptor = os.open("/", _DIRECTORY_FLAGS)
+    try:
+        for part in pure.parts[1:]:
+            child = os.open(part, _DIRECTORY_FLAGS, dir_fd=descriptor)
+            os.close(descriptor)
+            descriptor = child
+        return descriptor
+    except Exception:
+        os.close(descriptor)
+        raise
+
+
+def _identity(metadata):
+    return metadata.st_dev, metadata.st_ino
+
+
+def _directory_identity(path):
+    descriptor = _open_directory_nofollow(path)
+    try:
+        return _identity(os.fstat(descriptor))
+    finally:
+        os.close(descriptor)
+
+
 @contextmanager
 def _parent_descriptor(root, relative, *, create=False):
     """Open every parent from the repository fd without following symlinks."""
     parts = _relative(relative).parts
     descriptors = []
     try:
-        current = os.open(root, _DIRECTORY_FLAGS)
+        current = _open_directory_nofollow(root)
         descriptors.append(current)
         for part in parts[:-1]:
             try:
@@ -119,7 +180,7 @@ def _metadata(root, relative, *, required=True):
     return metadata
 
 
-def _read(root, relative):
+def _read_identity(root, relative):
     flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
     try:
         with _parent_descriptor(root, relative) as (parent, name):
@@ -132,7 +193,8 @@ def _read(root, relative):
                 while True:
                     chunk = os.read(descriptor, 1024 * 1024)
                     if not chunk:
-                        return b"".join(chunks)
+                        return (b"".join(chunks), stat.S_IMODE(metadata.st_mode),
+                                _identity(metadata))
                     chunks.append(chunk)
             finally:
                 os.close(descriptor)
@@ -140,6 +202,14 @@ def _read(root, relative):
         raise DistributionError("套件拥有文件缺失") from error
     except OSError as error:
         raise DistributionError("无法安全读取套件文件") from error
+
+
+def _read(root, relative):
+    return _read_identity(root, relative)[0]
+
+
+def _file_identity(root, relative):
+    return _read_identity(root, relative)[2]
 
 
 def _write_to_descriptor(parent, name, content, mode):
@@ -151,6 +221,16 @@ def _write_to_descriptor(parent, name, content, mode):
         while view:
             view = view[os.write(descriptor, view):]
         os.fsync(descriptor)
+    except Exception:
+        try:
+            created = os.fstat(descriptor)
+            current = os.stat(name, dir_fd=parent, follow_symlinks=False)
+            if (stat.S_ISREG(current.st_mode)
+                    and _identity(current) == _identity(created)):
+                os.unlink(name, dir_fd=parent)
+        except OSError:
+            pass
+        raise
     finally:
         os.close(descriptor)
 
@@ -169,28 +249,37 @@ def _write_new(root, relative, content, mode):
         raise DistributionError("无法安全创建套件文件") from error
 
 
-def _replace(root, relative, content, mode):
+def _replace(root, relative, content, mode, *, expected_identity=None):
     temporary = "." + _relative(relative).name + ".agent-harness-" + str(os.getpid())
     try:
         with _parent_descriptor(root, relative) as (parent, name):
             temporary_created = False
             try:
-                target = os.stat(name, dir_fd=parent, follow_symlinks=False)
-                if stat.S_ISLNK(target.st_mode) or not stat.S_ISREG(target.st_mode):
-                    raise DistributionError("目标文件不是普通文件或为符号链接")
+                target_descriptor = os.open(
+                    name, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0), dir_fd=parent,
+                )
                 try:
-                    os.stat(temporary, dir_fd=parent, follow_symlinks=False)
-                except FileNotFoundError:
-                    pass
-                else:
-                    raise DistributionError("升级临时文件冲突")
-                _write_to_descriptor(parent, temporary, content, mode)
-                temporary_created = True
-                target = os.stat(name, dir_fd=parent, follow_symlinks=False)
-                if stat.S_ISLNK(target.st_mode) or not stat.S_ISREG(target.st_mode):
-                    raise DistributionError("替换前目标文件身份变化")
-                os.replace(temporary, name, src_dir_fd=parent, dst_dir_fd=parent)
-                temporary_created = False
+                    target = os.fstat(target_descriptor)
+                    if (not stat.S_ISREG(target.st_mode)
+                            or (expected_identity is not None
+                                and _identity(target) != expected_identity)):
+                        raise DistributionError("替换前目标文件身份变化")
+                    try:
+                        os.stat(temporary, dir_fd=parent, follow_symlinks=False)
+                    except FileNotFoundError:
+                        pass
+                    else:
+                        raise DistributionError("升级临时文件冲突")
+                    _write_to_descriptor(parent, temporary, content, mode)
+                    temporary_created = True
+                    current = os.stat(name, dir_fd=parent, follow_symlinks=False)
+                    if (stat.S_ISLNK(current.st_mode) or not stat.S_ISREG(current.st_mode)
+                            or _identity(current) != _identity(target)):
+                        raise DistributionError("替换前目标文件身份变化")
+                    os.replace(temporary, name, src_dir_fd=parent, dst_dir_fd=parent)
+                    temporary_created = False
+                finally:
+                    os.close(target_descriptor)
             finally:
                 if temporary_created:
                     try:
@@ -201,15 +290,25 @@ def _replace(root, relative, content, mode):
         raise DistributionError("套件拥有文件缺失") from error
     except OSError as error:
         raise DistributionError("无法原子替换套件文件") from error
+    return _file_identity(root, relative)
 
 
-def _unlink(root, relative):
+def _unlink(root, relative, *, expected_identity=None):
     try:
         with _parent_descriptor(root, relative) as (parent, name):
-            metadata = os.stat(name, dir_fd=parent, follow_symlinks=False)
-            if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISREG(metadata.st_mode):
-                raise DistributionError("目标文件不是普通文件或为符号链接")
-            os.unlink(name, dir_fd=parent)
+            descriptor = os.open(name, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0), dir_fd=parent)
+            try:
+                metadata = os.fstat(descriptor)
+                current = os.stat(name, dir_fd=parent, follow_symlinks=False)
+                if (not stat.S_ISREG(metadata.st_mode) or stat.S_ISLNK(current.st_mode)
+                        or not stat.S_ISREG(current.st_mode)
+                        or _identity(current) != _identity(metadata)
+                        or (expected_identity is not None
+                            and _identity(metadata) != expected_identity)):
+                    raise DistributionError("删除前目标文件身份变化")
+                os.unlink(name, dir_fd=parent)
+            finally:
+                os.close(descriptor)
     except FileNotFoundError as error:
         raise DistributionError("套件拥有文件缺失") from error
     except OSError as error:
@@ -235,8 +334,12 @@ def _source_inventory(source):
 
 def _validate_repository(target):
     try:
-        root = Path(target).resolve(strict=True)
-    except (OSError, RuntimeError, ValueError) as error:
+        raw = _absolute_target(str(target))
+        root = Path(raw.as_posix())
+        original_identity = _directory_identity(root)
+    except (DistributionError, OSError, RuntimeError, ValueError) as error:
+        if isinstance(error, DistributionError):
+            raise
         raise DistributionError("目标必须是可访问的 Git 仓库", 2) from error
     git = "/usr/bin/git"
     environment = {"PATH": "/usr/bin:/bin", "HOME": os.environ.get("HOME", "")}
@@ -254,14 +357,21 @@ def _validate_repository(target):
             raise DistributionError("目标必须是已有提交的 Git 仓库", 2)
         outputs.append(result.stdout.strip())
     try:
-        if Path(outputs[0]).resolve(strict=True) != root or not re.fullmatch(r"[0-9a-f]{40,64}", outputs[1]):
+        current_identity = _directory_identity(root)
+        if (Path(outputs[0]) != root or current_identity != original_identity
+                or not re.fullmatch(r"[0-9a-f]{40,64}", outputs[1])):
             raise DistributionError("目标必须是仓库根目录且 HEAD 明确", 2)
-    except (OSError, RuntimeError, ValueError) as error:
+    except (DistributionError, OSError, RuntimeError, ValueError) as error:
+        if isinstance(error, DistributionError):
+            raise
         raise DistributionError("目标仓库身份无效", 2) from error
     return root
 
 
 def _manifest_bytes(version, owned, seeded):
+    paths = frozenset(entry["path"] for entry in owned)
+    if paths != MANIFEST_FILE_SETS.get(FORMAT_VERSION):
+        raise DistributionError("当前版本的套件文件集合未登记")
     document = {
         "formatVersion": FORMAT_VERSION,
         "suiteVersion": version,
@@ -273,9 +383,28 @@ def _manifest_bytes(version, owned, seeded):
 
 def _load_manifest(root):
     try:
-        document = json.loads(_read(root, MANIFEST_PATH))
+        json_metadata = _metadata(root, MANIFEST_PATH, required=False)
+        legacy_metadata = _metadata(root, LEGACY_MANIFEST_PATH, required=False)
+        if json_metadata is not None and legacy_metadata is not None:
+            raise ValueError()
+        if json_metadata is None:
+            if legacy_metadata is None:
+                raise ValueError()
+            content, _, identity = _read_identity(root, LEGACY_MANIFEST_PATH)
+            version = content.removesuffix(b"\n").decode("utf-8")
+            if content != (version + "\n").encode("utf-8") or version not in LEGACY_INSTALLS:
+                raise ValueError()
+            document = {
+                "formatVersion": 0,
+                "suiteVersion": version,
+                "ownedFiles": [dict(entry) for entry in LEGACY_INSTALLS[version]],
+                "seededFiles": [],
+            }
+            return document, LEGACY_MANIFEST_PATH, identity
+        content, _, identity = _read_identity(root, MANIFEST_PATH)
+        document = json.loads(content)
         if (set(document) != {"formatVersion", "suiteVersion", "ownedFiles", "seededFiles"}
-                or document["formatVersion"] != FORMAT_VERSION
+                or document["formatVersion"] not in MANIFEST_FILE_SETS
                 or not isinstance(document["suiteVersion"], str)
                 or not isinstance(document["ownedFiles"], list)
                 or not isinstance(document["seededFiles"], list)):
@@ -290,13 +419,13 @@ def _load_manifest(root):
             if entry["path"] in seen:
                 raise ValueError()
             seen.add(entry["path"])
-        if seen != set(RUNTIME_FILES):
+        if seen != MANIFEST_FILE_SETS[document["formatVersion"]]:
             raise ValueError()
         for entry in document["seededFiles"]:
             if (set(entry) != {"path", "sha256"} or _SHA256.fullmatch(entry["sha256"]) is None):
                 raise ValueError()
             _relative(entry["path"])
-        return document
+        return document, MANIFEST_PATH, identity
     except (DistributionError, OSError, UnicodeError, json.JSONDecodeError, TypeError, ValueError) as error:
         if isinstance(error, DistributionError):
             raise
@@ -304,11 +433,67 @@ def _load_manifest(root):
 
 
 def _verify_owned(root, entries):
+    identities = {}
     for entry in entries:
-        content = _read(root, entry["path"])
-        mode = stat.S_IMODE(_metadata(root, entry["path"]).st_mode)
+        content, mode, identity = _read_identity(root, entry["path"])
         if _sha256(content) != entry["sha256"] or mode != int(entry["mode"], 8):
             raise DistributionError("套件拥有文件已被修改，拒绝继续")
+        identities[entry["path"]] = identity
+    return identities
+
+
+def _backup_suite(root, manifest, manifest_path, backup):
+    snapshot = [dict(entry) for entry in manifest["ownedFiles"]]
+    manifest_content, manifest_mode, _ = _read_identity(root, manifest_path)
+    snapshot.append(_entry(manifest_path, manifest_content, manifest_mode))
+    for entry in snapshot:
+        _write_new(root, backup + "/" + entry["path"], _read(root, entry["path"]),
+                   int(entry["mode"], 8))
+    _verify_owned(root, [
+        {**entry, "path": backup + "/" + entry["path"]}
+        for entry in snapshot
+    ])
+    return snapshot
+
+
+def _restore_suite(root, backup, snapshot, created_paths, transaction_identities):
+    restored = True
+    for relative in sorted(created_paths):
+        try:
+            current = _metadata(root, relative, required=False)
+            expected = transaction_identities.get(relative)
+            if current is not None:
+                if expected is None or _identity(current) != expected:
+                    restored = False
+                    continue
+                _unlink(root, relative, expected_identity=expected)
+        except Exception:
+            restored = False
+    for entry in snapshot:
+        try:
+            content = _read(root, backup + "/" + entry["path"])
+            mode = int(entry["mode"], 8)
+            current = _metadata(root, entry["path"], required=False)
+            expected = transaction_identities.get(entry["path"])
+            if current is None:
+                if expected is not None:
+                    restored = False
+                    continue
+                _write_new(root, entry["path"], content, mode)
+            else:
+                if expected is None or _identity(current) != expected:
+                    restored = False
+                    continue
+                _replace(root, entry["path"], content, mode, expected_identity=expected)
+        except Exception:
+            restored = False
+    try:
+        _verify_owned(root, snapshot)
+        if any(_metadata(root, relative, required=False) is not None for relative in created_paths):
+            restored = False
+    except Exception:
+        restored = False
+    return restored
 
 
 def _prune(root, paths):
@@ -331,7 +516,7 @@ def install(source, target):
     source = Path(source).resolve(strict=True)
     root = _validate_repository(target)
     if (_metadata(root, MANIFEST_PATH, required=False) is not None
-            or _metadata(root, ".agent-harness-install", required=False) is not None):
+            or _metadata(root, LEGACY_MANIFEST_PATH, required=False) is not None):
         raise DistributionError("Harness 已安装；请使用 upgrade.sh")
     inventory = _source_inventory(source)
     for entry, _ in inventory:
@@ -370,39 +555,68 @@ def install(source, target):
 def upgrade(source, target):
     source = Path(source).resolve(strict=True)
     root = _validate_repository(target)
-    manifest = _load_manifest(root)
-    _verify_owned(root, manifest["ownedFiles"])
+    manifest, manifest_path, manifest_identity = _load_manifest(root)
+    identities = _verify_owned(root, manifest["ownedFiles"])
+    identities[manifest_path] = manifest_identity
     inventory = _source_inventory(source)
     old = {entry["path"]: entry for entry in manifest["ownedFiles"]}
     new = {entry["path"]: (entry, content) for entry, content in inventory}
     for relative in new.keys() - old.keys():
         if _metadata(root, relative, required=False) is not None:
             raise DistributionError("升级拒绝覆盖非套件文件")
-    backup = ".agent-harness-backups/" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + str(os.getpid())
-    for entry in manifest["ownedFiles"]:
-        _write_new(root, backup + "/" + entry["path"], _read(root, entry["path"]), int(entry["mode"], 8))
-    for relative, (entry, content) in new.items():
-        if relative in old:
-            _replace(root, relative, content, int(entry["mode"], 8))
+    backup = (".agent-harness-backups/"
+              + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+              + "-" + str(os.getpid()))
+    snapshot = _backup_suite(root, manifest, manifest_path, backup)
+    created_paths = set(new.keys() - old.keys())
+    if manifest_path != MANIFEST_PATH:
+        created_paths.add(MANIFEST_PATH)
+    transaction_identities = dict(identities)
+    try:
+        for relative, (entry, content) in new.items():
+            if relative in old:
+                transaction_identities[relative] = _replace(
+                    root, relative, content, int(entry["mode"], 8),
+                    expected_identity=transaction_identities[relative],
+                )
+            else:
+                _write_new(root, relative, content, int(entry["mode"], 8))
+                transaction_identities[relative] = _file_identity(root, relative)
+        for relative in old.keys() - new.keys():
+            _unlink(root, relative, expected_identity=transaction_identities[relative])
+            transaction_identities.pop(relative)
+        version = _read(source, "VERSION").decode().strip()
+        manifest_content = _manifest_bytes(
+            version, [entry for entry, _ in inventory], manifest["seededFiles"],
+        )
+        if manifest_path == MANIFEST_PATH:
+            transaction_identities[MANIFEST_PATH] = _replace(
+                root, MANIFEST_PATH, manifest_content, 0o600,
+                expected_identity=transaction_identities[MANIFEST_PATH],
+            )
         else:
-            _write_new(root, relative, content, int(entry["mode"], 8))
-    for relative in old.keys() - new.keys():
-        _unlink(root, relative)
-    version = _read(source, "VERSION").decode().strip()
-    _replace(root, MANIFEST_PATH,
-             _manifest_bytes(version, [entry for entry, _ in inventory], manifest["seededFiles"]), 0o600)
+            _write_new(root, MANIFEST_PATH, manifest_content, 0o600)
+            transaction_identities[MANIFEST_PATH] = _file_identity(root, MANIFEST_PATH)
+            _unlink(root, manifest_path, expected_identity=transaction_identities[manifest_path])
+            transaction_identities.pop(manifest_path)
+    except Exception:
+        restored = _restore_suite(
+            root, backup, snapshot, created_paths, transaction_identities,
+        )
+        result = "成功" if restored else "失败"
+        raise DistributionError(f"升级失败；备份位置：{backup}；恢复结果：{result}") from None
     _prune(root, old.keys() - new.keys())
     print(f"Upgraded control plane to {version}; backup: {root / backup}")
 
 
 def uninstall(target):
     root = _validate_repository(target)
-    manifest = _load_manifest(root)
-    _verify_owned(root, manifest["ownedFiles"])
+    manifest, manifest_path, manifest_identity = _load_manifest(root)
+    identities = _verify_owned(root, manifest["ownedFiles"])
     paths = [entry["path"] for entry in manifest["ownedFiles"]]
     for relative in paths:
-        _unlink(root, relative)
-    _unlink(root, MANIFEST_PATH)
+        _unlink(root, relative, expected_identity=identities[relative])
+    _unlink(root, manifest_path, expected_identity=manifest_identity)
     _prune(root, paths)
     print("Removed hash-matching Harness-owned files; host policy, seeds, backups and runtime history were preserved.")
 

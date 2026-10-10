@@ -51,7 +51,7 @@ scripts/agent-harness finalize --run-id <run-id>
 ## 安全原则
 
 - 配置失败关闭；未知字段、路径逃逸、符号链接逃逸和歧义命令均拒绝。
-- 安装、升级和卸载逐级拒绝目标路径 symlink；JSON manifest 绑定套件文件的路径、模式与 SHA-256，卸载不会按目录猜测归属。
+- 安装、升级和卸载对原始目标绝对路径逐组件 no-follow；versioned JSON manifest 绑定套件文件的路径、模式、SHA-256 与已登记文件集合，replace/unlink 继续绑定校验时的 descriptor identity。
 - Gate 使用参数数组，不把计划、日志或模型输出拼接为 Shell 命令。
 - 同一失败指纹最多自动修复 3 次；单 Milestone 最多 5 个失败周期；连续 2 轮无进展即暂停。
 - HEAD 改变后旧 Gate 证据失效；只有当前 HEAD 的必需 Gate 全部通过才可完成。

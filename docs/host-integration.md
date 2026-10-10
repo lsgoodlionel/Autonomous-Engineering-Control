@@ -6,13 +6,13 @@
 2. 在 `PROJECT_MEMORY.md` 记录稳定且可重新核验的项目事实。
 3. 在 `GATE_MATRIX.yaml` 登记现有测试命令，再按路径 profile 组合 Gate。
 4. 在 `PROTECTED_PATHS.yaml` 先覆盖控制平面、秘密、依赖、迁移、生产和生成文件。
-5. 配置 `HARNESS_HOST.json` 的计划、交付清单、严格 `deliverySyncPaths`、`expectedRepository`、ledger、fixture 和文档标记路径。
+5. 配置 `HARNESS_HOST.json` 的计划、交付清单、严格 `deliverySyncPaths`、`expectedRepository`、`repositoryAttestation`、ledger、fixture 和文档标记路径。
 6. 创建批准计划，明确单个 Milestone 的文件范围、验收门和人工边界。
 7. 在独立 worktree 中运行 `doctor`、测试和 fake drills。
 
 默认 delivery manifest 使用 `not_started`、空报告和固定 reviewer 列表 `security`、`dx_ci`、`whole_branch`。对应状态文档带同值 marker，因此初始模板可以直接通过 `--check-docs`；产生实现提交后再按交付状态机更新证据和 marker。
 
-`deliverySyncPaths` 必须在实现证据建立前确定，只列 active plan、delivery manifest、ledger、状态文档和预定的 Markdown review 文件，且全部使用精确仓库相对路径。实现提交后的文档与审查同步可继续推进；检查会遍历每个 descendant commit 的每个 parent，并按 NUL 分隔结果检查 rename 两端，所以禁止路径不能通过后续恢复或 merge 隐藏。`expectedRepository` 绑定 GitHub `OWNER/REPOSITORY`；repository complete 只能在 GitHub Actions 原生环境中以当前 `HEAD`、`GITHUB_SHA` 和 `GITHUB_REPOSITORY` 精确一致来证明，本地检查失败关闭且不需要令牌或网络。
+`deliverySyncPaths` 必须在实现证据建立前确定，只列 active plan、delivery manifest、ledger、状态文档和预定的 Markdown review 文件，且全部使用精确仓库相对路径。实现提交后的文档与审查同步可继续推进；检查会遍历每个 descendant commit 的每个 parent，并按 NUL 分隔结果检查 rename 两端，所以禁止路径不能通过后续恢复或 merge 隐藏。`expectedRepository` 绑定 GitHub `OWNER/REPOSITORY`，`repositoryAttestation.signerWorkflow` 与 `sourceRef` 绑定允许签名的 workflow 和分支。repository complete 必须先由该 workflow 对 exact-head archive 生成签名 attestation；随后 `check-docs` 重建同一 archive 并在线调用 `gh attestation verify`。伪造 GitHub 环境变量无效，缺少 attestation、`gh`、令牌、网络或验证失败都会拒绝。
 
 ## Gate 设计
 

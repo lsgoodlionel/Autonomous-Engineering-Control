@@ -65,13 +65,17 @@ HEAD、工作区和工具环境。审批路径、真实秘密、依赖新增、�
 `HARNESS_HOST.json.deliverySyncPaths` 使用精确仓库相对路径，不支持 glob；它只容纳计划、delivery manifest、
 ledger、状态文档和预先约定的 Markdown 审查报告。`check_docs` 验证 implementation commit 是 `HEAD` 祖先，并以
 NUL-safe 输出逐 commit、逐 parent 检查 rename 两端，拒绝该提交之后曾出现的任何源码、配置或未列路径，即使最终树已恢复。
-repository complete 还要求 GitHub Actions 原生 `GITHUB_SHA` 精确等于 `HEAD` 且 `GITHUB_REPOSITORY` 匹配
-`expectedRepository`；本地失败关闭，不使用令牌或网络。
+repository complete 不接受 `GITHUB_ACTIONS`、`GITHUB_SHA` 或 `GITHUB_REPOSITORY` 环境变量作为证明。独立
+GitHub Actions job 使用 `id-token: write` 与 `attestations: write` 为 exact-head `git archive` 生成签名
+artifact attestation；`check-docs` 重新生成同一 `HEAD` archive，并调用 `gh attestation verify` 绑定
+`expectedRepository`、signer workflow、source digest 和 `sourceRef`。本地没有已发布 attestation、`gh`、令牌、网络
+或验证失败时关闭拒绝；attestation 发布后可在线完成验证。
 
 ## 宿主集成
 
-`.github/workflows/ci.yml` 是独立套件的只读 CI 接线：固定 action commit，运行配置测试、完整
-Harness 套件、fake drills、危险参数扫描和计划/记忆漂移检查。它不持有写权限，也不执行合并、制品发布或部署。
+`.github/workflows/ci.yml` 的测试 job 使用只读权限并固定 action commit，运行配置测试、完整
+Harness 套件、fake drills、危险参数扫描和计划/记忆漂移检查。仅在主分支 push 且测试全部通过后，独立 attestation
+job 获得 `id-token: write` 与 `attestations: write`；它不执行合并、制品发布或部署。
 unit job 使用 Ubuntu/macOS × Python 3.11-3.14 矩阵、确定性 fake tools，并对 minimal host 实际运行 `--check-docs`；
 Linux integration job 通过 `run_tests.py --ci` 显式传入固定镜像 digest 与受信 Docker
 绝对路径，并以 `--fail-on-skip` 强制零 skip。环境变量不能替代这些受控参数。

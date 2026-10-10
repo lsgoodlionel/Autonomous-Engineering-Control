@@ -20,8 +20,8 @@
 - 升级改为已验证备份支持的套件级事务；运行时文件或 manifest 写入失败会自动恢复完整旧套件并报告脱敏恢复结果。
 - distribution 生命周期绑定 checksum/mode 校验时的 descriptor identity，拒绝校验后普通文件替换竞态，并对原始 target 绝对路径逐组件 no-follow。
 - 支持从 `4727ca9` 的 `0.1.0` 纯文本安装 marker 经历史哈希校验迁移；JSON manifest 按自身 versioned file-set schema 校验，允许新 format 合法增删 owned files。
-- delivery 同步改为逐 descendant commit、逐 parent 的 NUL-safe 路径历史校验，并将 repository complete 绑定 `expectedRepository` 与 GitHub Actions exact-head 环境。
-- distribution 将 validated repository root identity 贯穿全部操作，并以同父目录 quarantine rename 关闭 replace/unlink 的最终 syscall TOCTOU。
+- delivery 同步改为逐 descendant commit、逐 parent 的 NUL-safe 路径历史校验；repository complete 改由限定 repository/workflow 的 GitHub signed exact-head artifact attestation 外部门证明，本地环境变量不再被信任。
+- distribution 将 validated repository root identity 贯穿全部操作；install rollback 保存创建时 identity，replace/unlink 采用同父目录 quarantine rename，并保留随机 private entry，避免 POSIX identity-unbound unlink 误删并发换入的宿主文件。
 
 ### Known limitations
 

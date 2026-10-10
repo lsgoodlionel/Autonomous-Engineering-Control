@@ -458,13 +458,14 @@ def load_host_config(repo: Path, relative: Path = _DEFAULT_HOST_CONFIG) -> dict:
     try:
         document = json.loads(path.read_text(encoding="utf-8"))
         required = {"version", "activePlan", "deliveryManifest", "deliverySyncPaths",
-                    "expectedRepository", "ledger", "secretPolicy", "fixture",
-                    "documentation"}
+                    "expectedRepository", "repositoryAttestation", "ledger",
+                    "secretPolicy", "fixture", "documentation"}
         if set(document) != required or document["version"] != 1:
             raise ValueError()
         policy = document["secretPolicy"]
         fixture = document["fixture"]
         docs = document["documentation"]
+        attestation = document["repositoryAttestation"]
         sync_paths = document["deliverySyncPaths"]
         if (set(policy) != {"patterns", "allowlist"}
                 or not all(isinstance(value, str) and value for value in (*policy["patterns"], *policy["allowlist"]))
@@ -474,7 +475,14 @@ def load_host_config(repo: Path, relative: Path = _DEFAULT_HOST_CONFIG) -> dict:
                 or not all(isinstance(value, str) and value for value in sync_paths)
                 or len(set(sync_paths)) != len(sync_paths)
                 or re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+",
-                                document["expectedRepository"]) is None):
+                                document["expectedRepository"]) is None
+                or set(attestation) != {"provider", "signerWorkflow", "sourceRef"}
+                or attestation["provider"] != "github-artifact-attestation"
+                or re.fullmatch(r"\.github/workflows/[A-Za-z0-9_.-]+\.ya?ml",
+                                attestation["signerWorkflow"]) is None
+                or re.fullmatch(r"refs/heads/[A-Za-z0-9._/-]+",
+                                attestation["sourceRef"]) is None
+                or ".." in attestation["sourceRef"].split("/")):
             raise ValueError()
         for value in (document["activePlan"], document["deliveryManifest"], document["ledger"],
                       fixture["path"], fixture["planPath"], *docs["statusMarkerPaths"]):
@@ -533,11 +541,31 @@ def _delivery_history_paths(root: Path, implementation_commit: str) -> tuple[byt
 
 
 def _validate_repository_attestation(root: Path, host: dict) -> None:
+    policy = host["repositoryAttestation"]
     head = _git(root, "rev-parse", "HEAD")
-    if (os.environ.get("GITHUB_ACTIONS") != "true"
-            or os.environ.get("GITHUB_SHA") != head
-            or os.environ.get("GITHUB_REPOSITORY") != host["expectedRepository"]):
-        raise ValueError()
+    signer = ("https://github.com/" + host["expectedRepository"] + "/"
+              + policy["signerWorkflow"])
+    try:
+        with tempfile.TemporaryDirectory(prefix="agent-harness-attestation-") as directory:
+            archive = Path(directory) / "exact-head.tar"
+            archived = _run([
+                "git", "archive", "--format=tar", "--output", str(archive), head,
+            ], root, check=False)
+            if archived.returncode or not archive.is_file() or archive.is_symlink():
+                raise DrillRefused("exact-head attestation subject could not be created")
+            verified = _run([
+                "gh", "attestation", "verify", str(archive),
+                "--repo", host["expectedRepository"],
+                "--signer-workflow", signer,
+                "--source-digest", head,
+                "--source-ref", policy["sourceRef"],
+            ], root, check=False)
+            if verified.returncode:
+                raise DrillRefused("repository artifact attestation verification failed")
+    except DrillRefused:
+        raise
+    except (OSError, subprocess.SubprocessError):
+        raise DrillRefused("repository artifact attestation verification unavailable") from None
 
 
 def _matches(path: str, patterns) -> bool:

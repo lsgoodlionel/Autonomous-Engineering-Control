@@ -18,7 +18,7 @@ manifest 可以删除的套件核心：
 
 卸载在发生任何删除前验证全部 owned entry 的安全相对路径、普通文件类型、模式和 SHA-256。任一文件缺失、被修改或任一路径组件为 symlink 时整体拒绝；成功后只删除逐项验证过的文件和 manifest，并只清理空目录。
 
-模式与摘要从同一打开的 descriptor 读取。后续 unlink 先在同一 parent descriptor 下把目录项 rename 到随机 quarantine，确认被移动文件仍匹配 `(st_dev, st_ino)` 后才删除；校验后在 rename syscall 边界换入的普通文件会被恢复到原路径，无法恢复时保留在 quarantine 并失败关闭。repository root identity 也会在每次打开时复核。历史 JSON manifest 按自身 format 的精确 file-set schema 校验，不能由当前版本文件集合决定其合法性。
+模式与摘要从同一打开的 descriptor 读取。后续移除先在同一 parent descriptor 下把目录项 rename 到随机 quarantine，并确认被移动文件仍匹配 `(st_dev, st_ino)`。POSIX 没有 inode-bound unlink，所以卸载不再对 quarantine 执行最终 `stat -> unlink`；它保留随机隔离项并在输出中报告仓库相对位置。校验后在 rename syscall 边界换入的普通文件会被恢复到原路径，无法恢复时保留在 quarantine 并失败关闭，绝不删除 replacement。repository root identity 也会在每次打开时复核。历史 JSON manifest 按自身 format 的精确 file-set schema 校验，不能由当前版本文件集合决定其合法性。
 
 默认保留：
 

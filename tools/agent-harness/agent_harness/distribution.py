@@ -242,21 +242,16 @@ def _write_to_descriptor(parent, name, content, mode):
             view = view[os.write(descriptor, view):]
         os.fsync(descriptor)
         return _identity(os.fstat(descriptor))
-    except Exception:
-        try:
-            created = os.fstat(descriptor)
-            current = os.stat(name, dir_fd=parent, follow_symlinks=False)
-            if (stat.S_ISREG(current.st_mode)
-                    and _identity(current) == _identity(created)):
-                os.unlink(name, dir_fd=parent)
-        except OSError:
-            pass
-        raise
     finally:
         os.close(descriptor)
 
 
-def _write_new(root, relative, content, mode):
+def _retained_path(relative, private):
+    parent = _relative(relative).parent
+    return (parent / private).as_posix()
+
+
+def _write_new(root, relative, content, mode, *, retained=None):
     try:
         with _parent_descriptor(root, relative, create=True) as (parent, name):
             try:
@@ -265,7 +260,12 @@ def _write_new(root, relative, content, mode):
                 pass
             else:
                 raise DistributionError("拒绝覆盖已有宿主文件")
-            _write_to_descriptor(parent, name, content, mode)
+            private = _private_name(name, "temporary")
+            if retained is not None:
+                retained.append(_retained_path(relative, private))
+            identity = _write_to_descriptor(parent, private, content, mode)
+            _publish_private(parent, private, name, identity)
+            return identity
     except OSError as error:
         raise DistributionError("无法安全创建套件文件") from error
 
@@ -275,6 +275,8 @@ def _private_name(name, purpose):
             + "-" + secrets.token_hex(8))
 
 
+# POSIX cannot condition unlink on inode identity. These helpers retain private
+# entries after verification so a concurrent host replacement is never deleted.
 def _restore_quarantine(parent, name, quarantine, identity):
     try:
         os.link(quarantine, name, src_dir_fd=parent, dst_dir_fd=parent,
@@ -282,7 +284,6 @@ def _restore_quarantine(parent, name, quarantine, identity):
         restored = os.stat(name, dir_fd=parent, follow_symlinks=False)
         if not stat.S_ISREG(restored.st_mode) or _identity(restored) != identity:
             return False
-        os.unlink(quarantine, dir_fd=parent)
         return True
     except OSError:
         return False
@@ -326,7 +327,6 @@ def _unlink_quarantine(parent, quarantine, expected_identity):
                 or _identity(metadata) != expected_identity
                 or _identity(current) != expected_identity):
             raise DistributionError("quarantine 文件身份变化")
-        os.unlink(quarantine, dir_fd=parent)
     finally:
         os.close(descriptor)
 
@@ -336,26 +336,26 @@ def _publish_private(parent, private, name, expected_identity):
     published = os.stat(name, dir_fd=parent, follow_symlinks=False)
     if not stat.S_ISREG(published.st_mode) or _identity(published) != expected_identity:
         raise DistributionError("发布时目标文件身份变化")
-    os.unlink(private, dir_fd=parent)
 
 
-def _replace(root, relative, content, mode, *, expected_identity=None):
+def _replace(root, relative, content, mode, *, expected_identity=None, retained=None):
     name = _relative(relative).name
     temporary = _private_name(name, "temporary")
     try:
         with _parent_descriptor(root, relative) as (parent, target_name):
-            temporary_created = False
             quarantine = None
             quarantine_identity = None
             published = False
             try:
+                if retained is not None:
+                    retained.append(_retained_path(relative, temporary))
                 new_identity = _write_to_descriptor(parent, temporary, content, mode)
-                temporary_created = True
                 quarantine, quarantine_identity = _quarantine(
                     parent, target_name, expected_identity,
                 )
+                if retained is not None:
+                    retained.append(_retained_path(relative, quarantine))
                 _publish_private(parent, temporary, target_name, new_identity)
-                temporary_created = False
                 published = True
                 _unlink_quarantine(parent, quarantine, quarantine_identity)
                 quarantine = None
@@ -384,25 +384,21 @@ def _replace(root, relative, content, mode, *, expected_identity=None):
                                 parent, target_name, quarantine, quarantine_identity):
                             quarantine = None
                 raise
-            finally:
-                if temporary_created:
-                    try:
-                        os.unlink(temporary, dir_fd=parent)
-                    except OSError:
-                        pass
     except FileNotFoundError as error:
         raise DistributionError("套件拥有文件缺失") from error
     except OSError as error:
         raise DistributionError("无法原子替换套件文件") from error
 
 
-def _unlink(root, relative, *, expected_identity=None):
+def _unlink(root, relative, *, expected_identity=None, retained=None):
     try:
         with _parent_descriptor(root, relative) as (parent, name):
             quarantine = None
             quarantine_identity = None
             try:
                 quarantine, quarantine_identity = _quarantine(parent, name, expected_identity)
+                if retained is not None:
+                    retained.append(_retained_path(relative, quarantine))
                 _unlink_quarantine(parent, quarantine, quarantine_identity)
                 quarantine = None
             except Exception:
@@ -542,13 +538,13 @@ def _verify_owned(root, entries):
     return identities
 
 
-def _backup_suite(root, manifest, manifest_path, backup):
+def _backup_suite(root, manifest, manifest_path, backup, retained=None):
     snapshot = [dict(entry) for entry in manifest["ownedFiles"]]
     manifest_content, manifest_mode, _ = _read_identity(root, manifest_path)
     snapshot.append(_entry(manifest_path, manifest_content, manifest_mode))
     for entry in snapshot:
         _write_new(root, backup + "/" + entry["path"], _read(root, entry["path"]),
-                   int(entry["mode"], 8))
+                   int(entry["mode"], 8), retained=retained)
     _verify_owned(root, [
         {**entry, "path": backup + "/" + entry["path"]}
         for entry in snapshot
@@ -556,7 +552,8 @@ def _backup_suite(root, manifest, manifest_path, backup):
     return snapshot
 
 
-def _restore_suite(root, backup, snapshot, created_paths, transaction_identities):
+def _restore_suite(root, backup, snapshot, created_paths, transaction_identities,
+                   retained=None):
     restored = True
     for relative in sorted(created_paths):
         try:
@@ -566,7 +563,7 @@ def _restore_suite(root, backup, snapshot, created_paths, transaction_identities
                 if expected is None or _identity(current) != expected:
                     restored = False
                     continue
-                _unlink(root, relative, expected_identity=expected)
+                _unlink(root, relative, expected_identity=expected, retained=retained)
         except Exception:
             restored = False
     for entry in snapshot:
@@ -579,12 +576,13 @@ def _restore_suite(root, backup, snapshot, created_paths, transaction_identities
                 if expected is not None:
                     restored = False
                     continue
-                _write_new(root, entry["path"], content, mode)
+                _write_new(root, entry["path"], content, mode, retained=retained)
             else:
                 if expected is None or _identity(current) != expected:
                     restored = False
                     continue
-                _replace(root, entry["path"], content, mode, expected_identity=expected)
+                _replace(root, entry["path"], content, mode, expected_identity=expected,
+                         retained=retained)
         except Exception:
             restored = False
     try:
@@ -614,6 +612,15 @@ def _prune(root, paths):
             directory = directory.parent
 
 
+def _retained_note(paths):
+    unique = list(dict.fromkeys(paths))
+    if not unique:
+        return ""
+    shown = "、".join(unique[:3])
+    remainder = f" 等 {len(unique)} 项" if len(unique) > 3 else ""
+    return f"；保留隔离文件：{shown}{remainder}"
+
+
 def install(source, target):
     source = Path(source).resolve(strict=True)
     root = _validate_repository(target)
@@ -633,25 +640,32 @@ def install(source, target):
             seed_content.append((relative, content))
             seeded.append({"path": relative, "sha256": _sha256(content)})
     created = []
+    retained = []
     try:
         for entry, content in inventory:
-            _write_new(root, entry["path"], content, int(entry["mode"], 8))
-            created.append(entry["path"])
+            identity = _write_new(root, entry["path"], content, int(entry["mode"], 8),
+                                  retained=retained)
+            created.append((entry["path"], identity))
         for relative, content in seed_content:
-            _write_new(root, relative, content, 0o644)
-            created.append(relative)
+            identity = _write_new(root, relative, content, 0o644, retained=retained)
+            created.append((relative, identity))
         version = _read(source, "VERSION").decode().strip()
         _write_new(root, MANIFEST_PATH,
-                   _manifest_bytes(version, [entry for entry, _ in inventory], seeded), 0o600)
-    except Exception:
-        for relative in reversed(created):
+                   _manifest_bytes(version, [entry for entry, _ in inventory], seeded), 0o600,
+                   retained=retained)
+    except Exception as error:
+        for relative, identity in reversed(created):
             try:
-                _unlink(root, relative)
+                _unlink(root, relative, expected_identity=identity, retained=retained)
             except DistributionError:
                 pass
-        _prune(root, created)
+        _prune(root, [relative for relative, _ in created])
+        if isinstance(error, DistributionError):
+            raise DistributionError(str(error) + _retained_note(retained),
+                                    error.exit_code) from None
         raise
-    print(f"Installed control plane {version}; host templates were seeded without overwrites.")
+    print(f"Installed control plane {version}; host templates were seeded without overwrites"
+          + _retained_note(retained) + ".")
 
 
 def upgrade(source, target):
@@ -669,7 +683,8 @@ def upgrade(source, target):
     backup = (".agent-harness-backups/"
               + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
               + "-" + str(os.getpid()))
-    snapshot = _backup_suite(root, manifest, manifest_path, backup)
+    retained = []
+    snapshot = _backup_suite(root, manifest, manifest_path, backup, retained=retained)
     created_paths = set(new.keys() - old.keys())
     if manifest_path != MANIFEST_PATH:
         created_paths.add(MANIFEST_PATH)
@@ -680,12 +695,15 @@ def upgrade(source, target):
                 transaction_identities[relative] = _replace(
                     root, relative, content, int(entry["mode"], 8),
                     expected_identity=transaction_identities[relative],
+                    retained=retained,
                 )
             else:
-                _write_new(root, relative, content, int(entry["mode"], 8))
-                transaction_identities[relative] = _file_identity(root, relative)
+                transaction_identities[relative] = _write_new(
+                    root, relative, content, int(entry["mode"], 8), retained=retained,
+                )
         for relative in old.keys() - new.keys():
-            _unlink(root, relative, expected_identity=transaction_identities[relative])
+            _unlink(root, relative, expected_identity=transaction_identities[relative],
+                    retained=retained)
             transaction_identities.pop(relative)
         version = _read(source, "VERSION").decode().strip()
         manifest_content = _manifest_bytes(
@@ -695,20 +713,26 @@ def upgrade(source, target):
             transaction_identities[MANIFEST_PATH] = _replace(
                 root, MANIFEST_PATH, manifest_content, 0o600,
                 expected_identity=transaction_identities[MANIFEST_PATH],
+                retained=retained,
             )
         else:
-            _write_new(root, MANIFEST_PATH, manifest_content, 0o600)
-            transaction_identities[MANIFEST_PATH] = _file_identity(root, MANIFEST_PATH)
-            _unlink(root, manifest_path, expected_identity=transaction_identities[manifest_path])
+            transaction_identities[MANIFEST_PATH] = _write_new(
+                root, MANIFEST_PATH, manifest_content, 0o600, retained=retained,
+            )
+            _unlink(root, manifest_path, expected_identity=transaction_identities[manifest_path],
+                    retained=retained)
             transaction_identities.pop(manifest_path)
     except Exception:
         restored = _restore_suite(
-            root, backup, snapshot, created_paths, transaction_identities,
+            root, backup, snapshot, created_paths, transaction_identities, retained=retained,
         )
         result = "成功" if restored else "失败"
-        raise DistributionError(f"升级失败；备份位置：{backup}；恢复结果：{result}") from None
+        raise DistributionError(
+            f"升级失败；备份位置：{backup}；恢复结果：{result}" + _retained_note(retained)
+        ) from None
     _prune(root, old.keys() - new.keys())
-    print(f"Upgraded control plane to {version}; backup: {root.path / backup}")
+    print(f"Upgraded control plane to {version}; backup: {root.path / backup}"
+          + _retained_note(retained))
 
 
 def uninstall(target):
@@ -716,11 +740,13 @@ def uninstall(target):
     manifest, manifest_path, manifest_identity = _load_manifest(root)
     identities = _verify_owned(root, manifest["ownedFiles"])
     paths = [entry["path"] for entry in manifest["ownedFiles"]]
+    retained = []
     for relative in paths:
-        _unlink(root, relative, expected_identity=identities[relative])
-    _unlink(root, manifest_path, expected_identity=manifest_identity)
+        _unlink(root, relative, expected_identity=identities[relative], retained=retained)
+    _unlink(root, manifest_path, expected_identity=manifest_identity, retained=retained)
     _prune(root, paths)
-    print("Removed hash-matching Harness-owned files; host policy, seeds, backups and runtime history were preserved.")
+    print("Removed hash-matching Harness-owned paths; host policy, seeds, backups and runtime history were preserved"
+          + _retained_note(retained) + ".")
 
 
 def main(argv=None):

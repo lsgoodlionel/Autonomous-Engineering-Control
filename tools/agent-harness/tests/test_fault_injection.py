@@ -883,6 +883,11 @@ class FaultInjectionTests(unittest.TestCase):
                 "activePlan": "docs/superpowers/plans/custom.md",
                 "deliveryManifest": "docs/DELIVERY.json",
                 "expectedRepository": "example/harness-host",
+                "repositoryAttestation": {
+                    "provider": "github-artifact-attestation",
+                    "signerWorkflow": ".github/workflows/ci.yml",
+                    "sourceRef": "refs/heads/main",
+                },
                 "deliverySyncPaths": [
                     ".sdd/progress.md", "AGENTS.md", "README.md", "docs/AUTONOMY.md",
                     "docs/DELIVERY.json", "docs/MEMORY.md",
@@ -948,25 +953,21 @@ class FaultInjectionTests(unittest.TestCase):
                 stage_marker = "<!-- harness-delivery-status: " + status + " -->"
                 for relative in ("README.md", "AGENTS.md", "docs/AUTONOMY.md", "docs/MEMORY.md"):
                     (repo / relative).write_text(stage_marker + "\n", encoding="utf-8")
-                current_head = subprocess.run(
-                    ["git", "rev-parse", "HEAD"], cwd=repo, check=True,
-                    text=True, capture_output=True,
-                ).stdout.strip()
-                with patch.dict(os.environ, {"GITHUB_ACTIONS": "false"}, clear=False):
-                    with self.assertRaises(self.runner.DrillRefused):
-                        self.runner.check_docs(repo, host)
-                trusted_ci = {
+                spoofed_ci = {
                     "GITHUB_ACTIONS": "true",
-                    "GITHUB_SHA": current_head,
-                    "GITHUB_REPOSITORY": "example/harness-host",
+                    "GITHUB_SHA": "0" * 40,
+                    "GITHUB_REPOSITORY": "attacker/repository",
                 }
-                with patch.dict(os.environ, trusted_ci, clear=False):
-                    self.runner.check_docs(repo, host)
-                with patch.dict(os.environ, {**trusted_ci,
-                                              "GITHUB_REPOSITORY": "other/repository"},
-                                clear=False):
+                refused = self.runner.DrillRefused("attestation unavailable")
+                with patch.object(self.runner, "_validate_repository_attestation",
+                                  side_effect=refused), \
+                        patch.dict(os.environ, spoofed_ci, clear=False):
                     with self.assertRaises(self.runner.DrillRefused):
                         self.runner.check_docs(repo, host)
+                with patch.object(self.runner, "_validate_repository_attestation",
+                                  return_value=None), \
+                        patch.dict(os.environ, spoofed_ci, clear=False):
+                    self.runner.check_docs(repo, host)
             untracked = repo / "untracked-review.md"
             untracked.write_text((repo / reports[0]["path"]).read_text(encoding="utf-8"),
                                  encoding="utf-8")
@@ -1011,6 +1012,11 @@ class FaultInjectionTests(unittest.TestCase):
                 "activePlan": "docs/superpowers/plans/active.md",
                 "deliveryManifest": "docs/DELIVERY.json",
                 "expectedRepository": "example/harness-host",
+                "repositoryAttestation": {
+                    "provider": "github-artifact-attestation",
+                    "signerWorkflow": ".github/workflows/ci.yml",
+                    "sourceRef": "refs/heads/main",
+                },
                 "ledger": "docs/progress.md",
                 "secretPolicy": self.secret_policy(),
                 "fixture": {"path": "fixture.txt", "planPath": "docs/superpowers/plans/smoke.md",
@@ -1086,6 +1092,89 @@ class FaultInjectionTests(unittest.TestCase):
 
             self.assertIn(b"src/from-side.py", changed)
 
+    def test_repository_attestation_verifies_exact_head_archive_at_fixed_gh_boundary(self):
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory).resolve()
+            subprocess.run(["git", "init", "-b", "main"], cwd=repo, check=True,
+                           capture_output=True)
+            subprocess.run(["git", "config", "user.email", "test@example.invalid"],
+                           cwd=repo, check=True, capture_output=True)
+            subprocess.run(["git", "config", "user.name", "Harness Test"], cwd=repo,
+                           check=True, capture_output=True)
+            (repo / "suite.txt").write_text("exact head\n", encoding="utf-8")
+            subprocess.run(["git", "add", "suite.txt"], cwd=repo, check=True,
+                           capture_output=True)
+            subprocess.run(["git", "commit", "-m", "attested head"], cwd=repo, check=True,
+                           capture_output=True)
+            head = subprocess.run(
+                ["git", "rev-parse", "HEAD"], cwd=repo, check=True,
+                text=True, capture_output=True,
+            ).stdout.strip()
+            expected_archive = subprocess.run(
+                ["git", "archive", "--format=tar", head], cwd=repo, check=True,
+                capture_output=True,
+            ).stdout
+            host = {
+                "expectedRepository": "example/harness-host",
+                "repositoryAttestation": {
+                    "provider": "github-artifact-attestation",
+                    "signerWorkflow": ".github/workflows/ci.yml",
+                    "sourceRef": "refs/heads/main",
+                },
+            }
+            real_run = self.runner.subprocess.run
+            observed = {}
+
+            def verified_boundary(args, **kwargs):
+                if args[0] != "gh":
+                    return real_run(args, **kwargs)
+                observed["args"] = args
+                observed["cwd"] = kwargs["cwd"]
+                archive = Path(args[3])
+                observed["archiveSha256"] = hashlib.sha256(archive.read_bytes()).hexdigest()
+                return subprocess.CompletedProcess(args, 0, "verified\n", "")
+
+            spoofed = {
+                "GITHUB_ACTIONS": "true",
+                "GITHUB_SHA": "0" * 40,
+                "GITHUB_REPOSITORY": "attacker/repository",
+            }
+            with patch.object(self.runner.subprocess, "run", side_effect=verified_boundary), \
+                    patch.dict(os.environ, spoofed, clear=False):
+                self.runner._validate_repository_attestation(repo, host)
+
+            command = observed["args"]
+            self.assertEqual(command[:3], ["gh", "attestation", "verify"])
+            self.assertEqual(command[4:], [
+                "--repo", "example/harness-host",
+                "--signer-workflow",
+                "https://github.com/example/harness-host/.github/workflows/ci.yml",
+                "--source-digest", head,
+                "--source-ref", "refs/heads/main",
+            ])
+            self.assertEqual(observed["cwd"], repo)
+            self.assertEqual(
+                observed["archiveSha256"], hashlib.sha256(expected_archive).hexdigest(),
+            )
+
+            def refused_boundary(args, **kwargs):
+                if args[0] == "gh":
+                    return subprocess.CompletedProcess(args, 1, "", "untrusted")
+                return real_run(args, **kwargs)
+
+            with patch.object(self.runner.subprocess, "run", side_effect=refused_boundary):
+                with self.assertRaises(self.runner.DrillRefused):
+                    self.runner._validate_repository_attestation(repo, host)
+
+            def missing_gh_boundary(args, **kwargs):
+                if args[0] == "gh":
+                    raise FileNotFoundError("gh unavailable")
+                return real_run(args, **kwargs)
+
+            with patch.object(self.runner.subprocess, "run", side_effect=missing_gh_boundary):
+                with self.assertRaises(self.runner.DrillRefused):
+                    self.runner._validate_repository_attestation(repo, host)
+
     def test_host_config_rejects_fixture_plan_outside_authoritative_root(self):
         with tempfile.TemporaryDirectory() as directory:
             repo = Path(directory)
@@ -1096,6 +1185,11 @@ class FaultInjectionTests(unittest.TestCase):
                 "activePlan": "docs/superpowers/plans/active.md",
                 "deliveryManifest": "docs/DELIVERY.json",
                 "expectedRepository": "example/harness-host",
+                "repositoryAttestation": {
+                    "provider": "github-artifact-attestation",
+                    "signerWorkflow": ".github/workflows/ci.yml",
+                    "sourceRef": "refs/heads/main",
+                },
                 "deliverySyncPaths": ["README.md", "docs/DELIVERY.json"],
                 "ledger": "docs/progress.md",
                 "secretPolicy": self.secret_policy(),
@@ -1126,6 +1220,11 @@ class FaultInjectionTests(unittest.TestCase):
                 "activePlan": "docs/superpowers/plans/portable.md",
                 "deliveryManifest": "docs/agent/PORTABLE_DELIVERY.json",
                 "expectedRepository": "example/harness-host",
+                "repositoryAttestation": {
+                    "provider": "github-artifact-attestation",
+                    "signerWorkflow": ".github/workflows/ci.yml",
+                    "sourceRef": "refs/heads/main",
+                },
                 "deliverySyncPaths": [
                     "README.md", "docs/agent/AUTONOMY.md",
                     "docs/agent/PORTABLE_DELIVERY.json", "docs/agent/portable-progress.md",

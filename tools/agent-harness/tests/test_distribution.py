@@ -55,6 +55,10 @@ class DistributionTests(unittest.TestCase):
         }
         return manifest_path.read_bytes(), files
 
+    def remove_test_isolates(self, directory):
+        for path in directory.glob(".*.agent-harness-*-*"):
+            path.unlink()
+
     def add_baseline_checkout(self):
         checkout = self.root / "baseline-4727ca9"
         self.git(REPO, "worktree", "add", "--detach", str(checkout), "4727ca9")
@@ -106,6 +110,69 @@ class DistributionTests(unittest.TestCase):
         self.assertEqual(wrapper.read_text(), "host-owned\n")
         self.assertFalse((repo / MANIFEST).exists())
 
+    def test_install_rollback_does_not_delete_created_path_replaced_by_host(self):
+        repo = self.repository()
+        first_relative = distribution.RUNTIME_FILES[0]
+        first = repo / first_relative
+        held = first.with_name(first.name + ".suite-before-race")
+        real_write_new = distribution._write_new
+        calls = 0
+
+        def replace_created_then_fail(root, relative, content, mode, **kwargs):
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                first.rename(held)
+                first.write_text("host replacement\n", encoding="utf-8")
+                raise distribution.DistributionError("injected install failure")
+            return real_write_new(root, relative, content, mode, **kwargs)
+
+        with mock.patch.object(distribution, "_write_new", side_effect=replace_created_then_fail):
+            with self.assertRaises(distribution.DistributionError) as raised:
+                distribution.install(REPO, repo)
+
+        self.assertIn("保留隔离文件：", str(raised.exception))
+        self.assertNotIn(str(repo), str(raised.exception))
+        self.assertEqual(first.read_text(encoding="utf-8"), "host replacement\n")
+        self.assertEqual(held.read_bytes(), (REPO / first_relative).read_bytes())
+
+    def test_private_entry_helpers_never_use_identity_unbound_unlink(self):
+        repo = self.repository()
+        validated = distribution._validate_repository(repo)
+        with distribution._parent_descriptor(validated, "owned.py", create=True) as (parent, name):
+            private = ".owned.py.agent-harness-temporary-test"
+            private_identity = distribution._write_to_descriptor(
+                parent, private, b"new suite\n", 0o644,
+            )
+            unlink_calls = []
+
+            def hostile_unlink(path, *args, **kwargs):
+                unlink_calls.append(path)
+                raise AssertionError("identity-unbound unlink reached")
+
+            with mock.patch.object(distribution.os, "unlink", side_effect=hostile_unlink):
+                distribution._publish_private(parent, private, name, private_identity)
+
+            self.assertEqual(unlink_calls, [])
+            self.assertEqual((repo / name).read_text(), "new suite\n")
+            self.assertEqual((repo / private).read_text(), "new suite\n")
+
+            quarantine, quarantine_identity = distribution._quarantine(
+                parent, name, private_identity,
+            )
+            with mock.patch.object(distribution.os, "unlink", side_effect=hostile_unlink):
+                distribution._unlink_quarantine(parent, quarantine, quarantine_identity)
+            self.assertEqual(unlink_calls, [])
+            self.assertEqual((repo / quarantine).read_text(), "new suite\n")
+
+            with mock.patch.object(distribution.os, "unlink", side_effect=hostile_unlink):
+                self.assertTrue(distribution._restore_quarantine(
+                    parent, name, quarantine, quarantine_identity,
+                ))
+            self.assertEqual(unlink_calls, [])
+            self.assertEqual((repo / name).read_text(), "new suite\n")
+            self.assertEqual((repo / quarantine).read_text(), "new suite\n")
+
     def test_install_rejects_symlinked_runtime_ancestors_without_outside_write(self):
         for relative in ("scripts", "tools", "tools/agent-harness", "docs", "tests"):
             with self.subTest(relative=relative):
@@ -132,6 +199,7 @@ class DistributionTests(unittest.TestCase):
         self.assertEqual(wrapper.read_text(), "host replacement\n")
 
         wrapper.unlink()
+        self.remove_test_isolates(repo / "scripts")
         outside = self.root / "outside-upgrade"
         outside.mkdir()
         (repo / "scripts").rmdir()
@@ -219,8 +287,13 @@ class DistributionTests(unittest.TestCase):
 
         def attack_before_rename(source, destination, *args, **kwargs):
             nonlocal swapped
+            directory = kwargs.get("dst_dir_fd")
+            target_parent = target.parent.stat()
+            same_parent = (directory is not None
+                           and distribution._identity(os.fstat(directory))
+                           == distribution._identity(target_parent))
             publishing = (str(source).startswith("." + target.name + ".agent-harness-temporary-")
-                          and destination == target.name)
+                          and destination == target.name and same_parent)
             if publishing and not swapped:
                 target.write_text("host replacement\n", encoding="utf-8")
                 swapped = True
@@ -228,8 +301,13 @@ class DistributionTests(unittest.TestCase):
 
         def attack_before_link(source, destination, *args, **kwargs):
             nonlocal swapped
+            directory = kwargs.get("dst_dir_fd")
+            target_parent = target.parent.stat()
+            same_parent = (directory is not None
+                           and distribution._identity(os.fstat(directory))
+                           == distribution._identity(target_parent))
             publishing = (str(source).startswith("." + target.name + ".agent-harness-temporary-")
-                          and destination == target.name)
+                          and destination == target.name and same_parent)
             if publishing and not swapped:
                 target.write_text("host replacement\n", encoding="utf-8")
                 swapped = True
@@ -438,6 +516,7 @@ class DistributionTests(unittest.TestCase):
         sentinel.write_text("outside\n", encoding="utf-8")
         wrapper = repo / "scripts/agent-harness"
         wrapper.unlink()
+        self.remove_test_isolates(repo / "scripts")
         (repo / "scripts").rmdir()
         (repo / "scripts").symlink_to(outside, target_is_directory=True)
 
@@ -511,7 +590,7 @@ class DistributionTests(unittest.TestCase):
         self.assertTrue(swapped)
         self.assertFalse((outside / "agent-harness/agent_harness/new.py").exists())
 
-    def test_write_new_removes_unpublished_file_when_write_fails(self):
+    def test_write_new_retains_private_file_but_never_publishes_when_write_fails(self):
         repo = self.repository()
         relative = "tools/agent-harness/agent_harness/new.py"
         with mock.patch.object(distribution.os, "fsync",
@@ -520,6 +599,10 @@ class DistributionTests(unittest.TestCase):
                 distribution._write_new(repo, relative, b"owned\n", 0o644)
 
         self.assertFalse((repo / relative).exists())
+        retained = list((repo / Path(relative).parent).glob(
+            ".new.py.agent-harness-temporary-*"
+        ))
+        self.assertEqual(len(retained), 1)
 
     def test_prune_cannot_remove_outside_directory_after_ancestor_swap(self):
         repo = self.repository()

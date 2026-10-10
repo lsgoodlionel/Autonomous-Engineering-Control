@@ -9,7 +9,7 @@
 - 固定 digest 的 Linux wrapper 集成测试零 skip。
 - portable install、`doctor`、fake drill 和 uninstall smoke 通过。
 - workflow 危险参数扫描、文档引用、`git diff --check` 和秘密扫描通过。
-- repository complete 由匹配 `expectedRepository` 的 GitHub Actions 在 `GITHUB_SHA == HEAD` 时验证；本地自报或手填环境输出不是发布证据。
+- repository complete 由匹配 `expectedRepository`、`repositoryAttestation.signerWorkflow` 与 `sourceRef` 的 GitHub Actions 对 exact-head archive 生成签名 artifact attestation；`check-docs` 重建 archive 并以 `gh attestation verify --repo --signer-workflow --source-digest --source-ref` 在线验证。自报或手填环境输出不是发布证据，无 attestation、`gh`、令牌或网络时失败关闭。
 - 发布包内容检查证明不含宿主状态、运行证据、缓存或秘密。
 - 仓库所有者已选择许可证并创建 `LICENSE`；在此之前不得正式公开发布。
 
@@ -30,7 +30,7 @@
 
 ## 权限
 
-普通 CI 使用只读仓库权限。仅 Release job 在所有验证成功后获得最小 `contents: write`，且不拥有生产部署、包仓库管理或秘密读取的额外权限。
+普通测试 CI 使用只读仓库权限。exact-head attestation job 仅增加 `id-token: write` 与 `attestations: write`；仅 Release job 在所有验证成功后获得最小 `contents: write`，且不拥有生产部署、包仓库管理或秘密读取的额外权限。
 
 ## 发布后验证与回滚
 

@@ -18,9 +18,11 @@ class GovernanceWorkflowTests(unittest.TestCase):
     def setUp(self):
         self.text = WORKFLOW.read_text(encoding="utf-8")
 
-    def test_workflow_is_read_only_and_pinned(self):
+    def test_workflow_permissions_are_minimal_and_actions_are_pinned(self):
         self.assertRegex(self.text, r"(?m)^permissions:\s*\n\s+contents:\s*read\s*$")
-        self.assertNotRegex(self.text, r"(?mi)^\s*[a-z-]+:\s*write\s*$")
+        self.assertNotRegex(self.text, r"(?mi)^\s+contents:\s*write\s*$")
+        self.assertEqual(len(re.findall(r"(?m)^\s+id-token:\s*write\s*$", self.text)), 1)
+        self.assertEqual(len(re.findall(r"(?m)^\s+attestations:\s*write\s*$", self.text)), 1)
         uses = re.findall(r"(?m)^\s*-?\s*uses:\s*([^\s#]+)", self.text)
         self.assertGreaterEqual(len(uses), 4)
         for action in uses:
@@ -29,7 +31,7 @@ class GovernanceWorkflowTests(unittest.TestCase):
     def test_checkout_fetches_review_history(self):
         checkout = "actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09"
         blocks = self.text.split("- uses: " + checkout)[1:]
-        self.assertEqual(len(blocks), 2)
+        self.assertEqual(len(blocks), 3)
         for block in blocks:
             self.assertRegex(block, r"(?m)^\s+with:\s*\n\s+fetch-depth:\s*0\s*$")
 
@@ -47,15 +49,16 @@ class GovernanceWorkflowTests(unittest.TestCase):
         self.assertIn("python-version: ${{ matrix.python }}", self.text)
         self.assertIn("--check-docs", self.text)
 
-    def test_workflow_verifies_native_exact_head_repository_attestation(self):
-        self.assertIn('test "$GITHUB_ACTIONS" = true', self.text)
+    def test_workflow_uses_signed_exact_head_artifact_attestation_gate(self):
+        self.assertRegex(self.text, r"actions/attest@[0-9a-f]{40}")
+        self.assertIn("git archive", self.text)
+        self.assertIn("gh attestation verify", self.text)
+        for option in ("--repo", "--signer-workflow", "--source-digest", "--source-ref"):
+            self.assertIn(option, self.text)
         self.assertIn('test "$GITHUB_SHA" = "$(git rev-parse HEAD)"', self.text)
-        self.assertIn('test "$GITHUB_REPOSITORY" = "lsgoodlionel/Autonomous-Engineering-Control"',
-                      self.text)
-        self.assertNotRegex(
-            self.text,
-            r"(?m)^\s+(?:GITHUB_ACTIONS|GITHUB_SHA|GITHUB_REPOSITORY):\s*",
-        )
+        self.assertNotIn("ACTIONS_ID_TOKEN_REQUEST_TOKEN", self.text)
+        self.assertNotIn("continue-on-error", self.text)
+        self.assertNotRegex(self.text, r"gh attestation verify[^\n]*\|\|\s*true")
 
     def test_macos_python_policy_uses_hosted_toolcache_not_homebrew(self):
         wrapper = (REPO / "scripts/agent-harness").read_text(encoding="utf-8")

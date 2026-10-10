@@ -37,6 +37,7 @@ Profile 字段：`paths` 与 `gates`。引用的 Gate ID 必须存在且不得�
 - `deliveryManifest`
 - `deliverySyncPaths`
 - `expectedRepository`
+- `repositoryAttestation`
 - `ledger`
 - `secretPolicy`
 - `fixture`
@@ -46,7 +47,9 @@ Profile 字段：`paths` 与 `gates`。引用的 Gate ID 必须存在且不得�
 
 `deliverySyncPaths` 是实现证据建立后仍允许提交的最小精确路径清单，不支持 glob。它必须包含 active plan、delivery manifest、ledger 和全部状态文档；额外路径只能是 `docs/` 或 `reviews/` 下预先声明的 Markdown 审查报告。源码（包括 `src/` 下的 Markdown）、运行配置、依赖文件以及任何未列路径都不能加入同步阶段。`check_docs` 要求 `implementationCommit` 是当前 `HEAD` 的祖先，并逐一检查该范围内每个 descendant commit 相对其每个 parent 的 NUL 分隔路径；rename 按删除与新增检查两端。因此禁止路径即使在后续提交恢复，或只从 merge parent 引入，也会使旧 delivery evidence 失效。
 
-`expectedRepository` 使用精确的 GitHub `OWNER/REPOSITORY`。当 external repository/github 状态为 `complete` 时，`check_docs` 只接受 GitHub Actions 原生环境中 `GITHUB_ACTIONS=true`、`GITHUB_SHA` 等于本地 `HEAD` 且 `GITHUB_REPOSITORY` 与该字段一致的证明；本地完整 docs check 失败关闭，不读取令牌也不访问网络。
+`expectedRepository` 使用精确的 GitHub `OWNER/REPOSITORY`。`repositoryAttestation` 固定为 provider `github-artifact-attestation`，以 `.github/workflows/*.yml` 或 `.yaml` 的精确 `signerWorkflow` 限定签名工作流，并以完整 `refs/heads/*` 的 `sourceRef` 限定来源分支。`GITHUB_ACTIONS`、`GITHUB_SHA` 和 `GITHUB_REPOSITORY` 都是进程可控输入，不构成身份证明。
+
+可信 repository gate 在 GitHub Actions 中使用 `actions/attest` 对 exact-head `git archive` 生成 Sigstore-backed artifact attestation。repository 为 complete 时，`check_docs` 在临时目录重建当前 commit 的 archive，再调用 `gh attestation verify`，同时限制 repository、官方 `https://github.com/` signer workflow URL、source digest=`HEAD` 和 `sourceRef`。该 workflow job 仅获 `contents: read`、`id-token: write` 与 `attestations: write`；本地无已发布 attestation、`gh`、GitHub API 访问、令牌或网络时失败关闭，不得降级为环境检查。测试只 mock `gh` 进程边界并核对 archive digest 与完整参数，不请求真实秘密或外网。
 
 `doctor` 将上述 active plan、delivery manifest、ledger、fixture、fixture plan 和状态文档视为完整宿主契约：路径必须安全、文件必须存在且不得经过 symlink。
 
@@ -69,4 +72,4 @@ Profile 字段：`paths` 与 `gates`。引用的 Gate ID 必须存在且不得�
 
 交付清单属于宿主集成契约，不是核心运行状态。模板初态固定为 `not_started`、空实现提交、pending evidence/external sync、空报告和 `security`、`dx_ci`、`whole_branch` reviewer 列表；宿主应由交付控制器填入计划步骤、当前实现提交、验证证据、独立复审和外部同步状态。不得复制其他项目的 commit、报告摘要或同步状态。
 
-manifest 不能自引用包含自身的提交，因此 `implementationCommit` 不要求等于 `HEAD`。允许它落后于 `HEAD` 的唯一原因是 `deliverySyncPaths` 中预先列出的文档与审查同步；repository complete 只能由匹配 `expectedRepository` 的 GitHub Actions exact-head 环境验证，不能在本地 manifest 中预填或伪造。
+manifest 不能自引用包含自身的提交，因此 `implementationCommit` 不要求等于 `HEAD`。允许它落后于 `HEAD` 的唯一原因是 `deliverySyncPaths` 中预先列出的文档与审查同步；repository complete 只有在匹配 `repositoryAttestation` policy 的 GitHub 签名 exact-head attestation 已发布并通过在线验证后才可达，不能在 manifest、环境或命令输出中预填或伪造。

@@ -47,11 +47,12 @@ def _host_references(root):
             raise ValueError()
         document = json.loads(path.read_text(encoding="utf-8"))
         required = {"version", "activePlan", "deliveryManifest", "deliverySyncPaths",
-                    "expectedRepository", "ledger", "secretPolicy", "fixture",
-                    "documentation"}
+                    "expectedRepository", "repositoryAttestation", "ledger",
+                    "secretPolicy", "fixture", "documentation"}
         fixture = document["fixture"]
         documentation = document["documentation"]
         policy = document["secretPolicy"]
+        attestation = document["repositoryAttestation"]
         if (set(document) != required or document["version"] != 1
                 or set(fixture) != {"path", "planPath", "baseline", "expected"}
                 or set(documentation) != {"statusMarkerPaths"}
@@ -61,7 +62,14 @@ def _host_references(root):
                 or not document["deliverySyncPaths"]
                 or len(set(document["deliverySyncPaths"])) != len(document["deliverySyncPaths"])
                 or re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+",
-                                document["expectedRepository"]) is None):
+                                document["expectedRepository"]) is None
+                or set(attestation) != {"provider", "signerWorkflow", "sourceRef"}
+                or attestation["provider"] != "github-artifact-attestation"
+                or re.fullmatch(r"\.github/workflows/[A-Za-z0-9_.-]+\.ya?ml",
+                                attestation["signerWorkflow"]) is None
+                or re.fullmatch(r"refs/heads/[A-Za-z0-9._/-]+",
+                                attestation["sourceRef"]) is None
+                or ".." in attestation["sourceRef"].split("/")):
             raise ValueError()
         values = (document["activePlan"], document["deliveryManifest"], document["ledger"],
                   fixture["path"], fixture["planPath"], *documentation["statusMarkerPaths"])

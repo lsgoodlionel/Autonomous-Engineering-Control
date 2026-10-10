@@ -29,6 +29,8 @@ jobs:
         shell: bash
         run: |
           if [[ "$(uname -s)" == "Darwin" ]]; then
+            /usr/bin/stat -f 'toolcache=%N mode=%OLp flags=%Sf owner=%u' "$pythonLocation/bin/python${{ matrix.python }}"
+            /bin/ls -ldeO "$pythonLocation/bin/python${{ matrix.python }}"
             version_root="${pythonLocation%/*}"
             controlled="/Users/runner/agent-harness-python/${version_root##*/}/arm64"
             mkdir -p "$controlled"

@@ -48,7 +48,14 @@ jobs:
             fi
           done
       - name: Verify controlled Python
-        run: scripts/agent-harness --python --version 2>&1 | grep "^Python ${{ matrix.python }}\\."
+        shell: bash
+        run: |
+          version=$(scripts/agent-harness --python --version 2>&1) || {
+            printf '%s\n' "$version"
+            exit 1
+          }
+          printf '%s\n' "$version"
+          grep "^Python ${{ matrix.python }}\\." <<<"$version"
       - name: Run unit contracts
         run: scripts/agent-harness --python tools/agent-harness/run_tests.py --exclude-substring linux_wrapper --fail-on-skip
       - name: Run deterministic drills
@@ -92,7 +99,14 @@ jobs:
             fi
           done
       - name: Verify controlled Python
-        run: scripts/agent-harness --python --version 2>&1 | grep '^Python 3\.11\.'
+        shell: bash
+        run: |
+          version=$(scripts/agent-harness --python --version 2>&1) || {
+            printf '%s\n' "$version"
+            exit 1
+          }
+          printf '%s\n' "$version"
+          grep '^Python 3\.11\.' <<<"$version"
       - name: Pull pinned Linux fixture
         run: docker pull python:3.11-slim@sha256:e88e9763f943ec1834f992a4b51e0f24500486803e8bc534e5767af9ea65f6ce
       - name: Run Linux wrapper contracts

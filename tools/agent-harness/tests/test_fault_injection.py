@@ -953,6 +953,18 @@ class FaultInjectionTests(unittest.TestCase):
                 stage_marker = "<!-- harness-delivery-status: " + status + " -->"
                 for relative in ("README.md", "AGENTS.md", "docs/AUTONOMY.md", "docs/MEMORY.md"):
                     (repo / relative).write_text(stage_marker + "\n", encoding="utf-8")
+                subprocess.run([
+                    "git", "add", "README.md", "AGENTS.md", "docs/AUTONOMY.md",
+                    "docs/MEMORY.md", "docs/DELIVERY.json",
+                ], cwd=repo, check=True, capture_output=True)
+                subprocess.run([
+                    "git", "commit", "-m", "synchronize " + status,
+                ], cwd=repo, check=True, capture_output=True)
+                docs_head = subprocess.run(
+                    ["git", "rev-parse", "HEAD"], cwd=repo, check=True,
+                    text=True, capture_output=True,
+                ).stdout.strip()
+                self.assertNotEqual(docs_head, head)
                 spoofed_ci = {
                     "GITHUB_ACTIONS": "true",
                     "GITHUB_SHA": "0" * 40,
@@ -965,9 +977,10 @@ class FaultInjectionTests(unittest.TestCase):
                     with self.assertRaises(self.runner.DrillRefused):
                         self.runner.check_docs(repo, host)
                 with patch.object(self.runner, "_validate_repository_attestation",
-                                  return_value=None), \
+                                  return_value=None) as verified, \
                         patch.dict(os.environ, spoofed_ci, clear=False):
                     self.runner.check_docs(repo, host)
+                verified.assert_called_once_with(repo.resolve(), host, head)
             untracked = repo / "untracked-review.md"
             untracked.write_text((repo / reports[0]["path"]).read_text(encoding="utf-8"),
                                  encoding="utf-8")
@@ -993,15 +1006,21 @@ class FaultInjectionTests(unittest.TestCase):
                            capture_output=True)
             subprocess.run(["git", "commit", "-m", "product change after evidence"], cwd=repo,
                            check=True, capture_output=True)
-            with self.assertRaises(self.runner.DrillRefused):
-                self.runner.check_docs(repo, host)
+            with patch.object(self.runner, "_validate_repository_attestation",
+                              return_value=None) as verifier:
+                with self.assertRaises(self.runner.DrillRefused):
+                    self.runner.check_docs(repo, host)
+            verifier.assert_not_called()
             source.unlink()
             subprocess.run(["git", "add", "src/product.py"], cwd=repo, check=True,
                            capture_output=True)
             subprocess.run(["git", "commit", "-m", "restore product tree"], cwd=repo,
                            check=True, capture_output=True)
-            with self.assertRaises(self.runner.DrillRefused):
-                self.runner.check_docs(repo, host)
+            with patch.object(self.runner, "_validate_repository_attestation",
+                              return_value=None) as verifier:
+                with self.assertRaises(self.runner.DrillRefused):
+                    self.runner.check_docs(repo, host)
+            verifier.assert_not_called()
 
     def test_host_config_rejects_source_or_config_delivery_sync_paths(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -1092,7 +1111,7 @@ class FaultInjectionTests(unittest.TestCase):
 
             self.assertIn(b"src/from-side.py", changed)
 
-    def test_repository_attestation_verifies_exact_head_archive_at_fixed_gh_boundary(self):
+    def test_repository_attestation_verifies_implementation_archive_not_docs_head(self):
         with tempfile.TemporaryDirectory() as directory:
             repo = Path(directory).resolve()
             subprocess.run(["git", "init", "-b", "main"], cwd=repo, check=True,
@@ -1106,14 +1125,24 @@ class FaultInjectionTests(unittest.TestCase):
                            capture_output=True)
             subprocess.run(["git", "commit", "-m", "attested head"], cwd=repo, check=True,
                            capture_output=True)
-            head = subprocess.run(
+            implementation = subprocess.run(
                 ["git", "rev-parse", "HEAD"], cwd=repo, check=True,
                 text=True, capture_output=True,
             ).stdout.strip()
             expected_archive = subprocess.run(
-                ["git", "archive", "--format=tar", head], cwd=repo, check=True,
+                ["git", "archive", "--format=tar", implementation], cwd=repo, check=True,
                 capture_output=True,
             ).stdout
+            (repo / "delivery.md").write_text("repository: complete\n", encoding="utf-8")
+            subprocess.run(["git", "add", "delivery.md"], cwd=repo, check=True,
+                           capture_output=True)
+            subprocess.run(["git", "commit", "-m", "complete delivery docs"], cwd=repo,
+                           check=True, capture_output=True)
+            docs_head = subprocess.run(
+                ["git", "rev-parse", "HEAD"], cwd=repo, check=True,
+                text=True, capture_output=True,
+            ).stdout.strip()
+            self.assertNotEqual(implementation, docs_head)
             host = {
                 "expectedRepository": "example/harness-host",
                 "repositoryAttestation": {
@@ -1141,7 +1170,7 @@ class FaultInjectionTests(unittest.TestCase):
             }
             with patch.object(self.runner.subprocess, "run", side_effect=verified_boundary), \
                     patch.dict(os.environ, spoofed, clear=False):
-                self.runner._validate_repository_attestation(repo, host)
+                self.runner._validate_repository_attestation(repo, host, implementation)
 
             command = observed["args"]
             self.assertEqual(command[:3], ["gh", "attestation", "verify"])
@@ -1149,13 +1178,26 @@ class FaultInjectionTests(unittest.TestCase):
                 "--repo", "example/harness-host",
                 "--signer-workflow",
                 "https://github.com/example/harness-host/.github/workflows/ci.yml",
-                "--source-digest", head,
+                "--source-digest", implementation,
                 "--source-ref", "refs/heads/main",
             ])
             self.assertEqual(observed["cwd"], repo)
             self.assertEqual(
                 observed["archiveSha256"], hashlib.sha256(expected_archive).hexdigest(),
             )
+
+            def implementation_only_boundary(args, **kwargs):
+                if args[0] != "gh":
+                    return real_run(args, **kwargs)
+                digest = args[args.index("--source-digest") + 1]
+                return subprocess.CompletedProcess(
+                    args, 0 if digest == implementation else 1, "", "",
+                )
+
+            with patch.object(self.runner.subprocess, "run",
+                              side_effect=implementation_only_boundary):
+                with self.assertRaises(self.runner.DrillRefused):
+                    self.runner._validate_repository_attestation(repo, host, docs_head)
 
             def refused_boundary(args, **kwargs):
                 if args[0] == "gh":
@@ -1164,7 +1206,7 @@ class FaultInjectionTests(unittest.TestCase):
 
             with patch.object(self.runner.subprocess, "run", side_effect=refused_boundary):
                 with self.assertRaises(self.runner.DrillRefused):
-                    self.runner._validate_repository_attestation(repo, host)
+                    self.runner._validate_repository_attestation(repo, host, implementation)
 
             def missing_gh_boundary(args, **kwargs):
                 if args[0] == "gh":
@@ -1173,7 +1215,7 @@ class FaultInjectionTests(unittest.TestCase):
 
             with patch.object(self.runner.subprocess, "run", side_effect=missing_gh_boundary):
                 with self.assertRaises(self.runner.DrillRefused):
-                    self.runner._validate_repository_attestation(repo, host)
+                    self.runner._validate_repository_attestation(repo, host, implementation)
 
     def test_host_config_rejects_fixture_plan_outside_authoritative_root(self):
         with tempfile.TemporaryDirectory() as directory:

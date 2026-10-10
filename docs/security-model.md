@@ -23,7 +23,7 @@
 - Gate 使用固定参数数组和固定工作目录，不执行动态 Shell 字符串。
 - 状态采用原子写入；事件仅追加并使用前一摘要形成完整性链。
 - Git 快照绑定分支、HEAD 和工作区；HEAD 变化使验证证据失效。
-- delivery 同步逐 descendant commit 和每个 merge parent 检查 NUL 分隔路径；repository complete 只信任由限定 repository/workflow 对 exact-head archive 签发并经 `gh attestation verify` 验证的 GitHub artifact attestation，不信任 manifest 或环境变量自报。
+- delivery 同步逐 descendant commit 和每个 merge parent 检查 `implementationCommit..HEAD` 的 NUL 分隔路径；repository complete 只信任由限定 repository/workflow 对 manifest implementation archive 签发并经 `gh attestation verify` 验证的 GitHub artifact attestation。后续 docs HEAD 不被冒充为已签实现，也不信任环境变量自报。
 - distribution 每次打开 validated repository root 都复核设备与 inode；replace/unlink 先将目录项原子移入同父目录 quarantine 并验证被移动 inode。POSIX 无法把 unlink 绑定到已验证 inode，因此私有 temporary/quarantine 不做最终 unlink，而以随机名保留并报告；并发换入文件不会被覆盖或删除。
 - 诊断覆盖 URL 凭据、认证 Header、Cookie、常见 Token、密码、私钥块和命名秘密的脱敏。
 - 控制平面自身、依赖、认证、迁移、生产与发布路径由宿主设为审批或禁止。

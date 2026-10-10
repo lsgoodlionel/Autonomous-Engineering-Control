@@ -66,10 +66,12 @@ HEAD、工作区和工具环境。审批路径、真实秘密、依赖新增、�
 ledger、状态文档和预先约定的 Markdown 审查报告。`check_docs` 验证 implementation commit 是 `HEAD` 祖先，并以
 NUL-safe 输出逐 commit、逐 parent 检查 rename 两端，拒绝该提交之后曾出现的任何源码、配置或未列路径，即使最终树已恢复。
 repository complete 不接受 `GITHUB_ACTIONS`、`GITHUB_SHA` 或 `GITHUB_REPOSITORY` 环境变量作为证明。独立
-GitHub Actions job 使用 `id-token: write` 与 `attestations: write` 为 exact-head `git archive` 生成签名
-artifact attestation；`check-docs` 重新生成同一 `HEAD` archive，并调用 `gh attestation verify` 绑定
-`expectedRepository`、signer workflow、source digest 和 `sourceRef`。本地没有已发布 attestation、`gh`、令牌、网络
-或验证失败时关闭拒绝；attestation 发布后可在线完成验证。
+GitHub Actions job 在每个通过测试的 main push 上使用 `id-token: write` 与 `attestations: write` 为该次 HEAD archive
+生成签名 artifact attestation。实现 push 的 manifest 仍可保持 repository pending；后续 docs-only push 将状态改为 complete
+时，`check-docs` 从 manifest 读取 `implementationCommit`，重建该历史 commit 的 archive，并调用
+`gh attestation verify` 绑定 `expectedRepository`、signer workflow、source digest=`implementationCommit` 和 `sourceRef`。
+当前文档 HEAD 不要求已有 attestation，但 `implementationCommit..HEAD` 的每个 descendant/parent 仍必须只触及
+`deliverySyncPaths`。本地没有对应 attestation、`gh`、令牌、网络或验证失败时关闭拒绝。
 
 ## 宿主集成
 

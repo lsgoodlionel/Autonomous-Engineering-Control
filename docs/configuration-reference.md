@@ -49,7 +49,7 @@ Profile 字段：`paths` 与 `gates`。引用的 Gate ID 必须存在且不得�
 
 `expectedRepository` 使用精确的 GitHub `OWNER/REPOSITORY`。`repositoryAttestation` 固定为 provider `github-artifact-attestation`，以 `.github/workflows/*.yml` 或 `.yaml` 的精确 `signerWorkflow` 限定签名工作流，并以完整 `refs/heads/*` 的 `sourceRef` 限定来源分支。`GITHUB_ACTIONS`、`GITHUB_SHA` 和 `GITHUB_REPOSITORY` 都是进程可控输入，不构成身份证明。
 
-可信 repository gate 在 GitHub Actions 中使用 `actions/attest` 对 exact-head `git archive` 生成 Sigstore-backed artifact attestation。repository 为 complete 时，`check_docs` 在临时目录重建当前 commit 的 archive，再调用 `gh attestation verify`，同时限制 repository、官方 `https://github.com/` signer workflow URL、source digest=`HEAD` 和 `sourceRef`。该 workflow job 仅获 `contents: read`、`id-token: write` 与 `attestations: write`；本地无已发布 attestation、`gh`、GitHub API 访问、令牌或网络时失败关闭，不得降级为环境检查。测试只 mock `gh` 进程边界并核对 archive digest 与完整参数，不请求真实秘密或外网。
+可信 repository gate 在每个通过测试的 main push 上使用 `actions/attest` 对该次 HEAD archive 生成 Sigstore-backed artifact attestation。第一次实现 push 可以保持 repository pending；后续只修改 `deliverySyncPaths` 的 commit 才能把 repository 标记 complete。此时 `check_docs` 在临时目录重建 manifest `implementationCommit` 的 archive，再调用 `gh attestation verify`，同时限制 repository、官方 `https://github.com/` signer workflow URL、source digest=`implementationCommit` 和 `sourceRef`。当前 docs descendant HEAD 不需要自己的 attestation。该 workflow job 仅获 `contents: read`、`id-token: write` 与 `attestations: write`；本地无对应 attestation、`gh`、GitHub API 访问、令牌或网络时失败关闭，不得降级为环境检查。测试只 mock `gh` 进程边界并核对 implementation archive digest 与完整参数，不请求真实秘密或外网。
 
 `doctor` 将上述 active plan、delivery manifest、ledger、fixture、fixture plan 和状态文档视为完整宿主契约：路径必须安全、文件必须存在且不得经过 symlink。
 
@@ -72,4 +72,4 @@ Profile 字段：`paths` 与 `gates`。引用的 Gate ID 必须存在且不得�
 
 交付清单属于宿主集成契约，不是核心运行状态。模板初态固定为 `not_started`、空实现提交、pending evidence/external sync、空报告和 `security`、`dx_ci`、`whole_branch` reviewer 列表；宿主应由交付控制器填入计划步骤、当前实现提交、验证证据、独立复审和外部同步状态。不得复制其他项目的 commit、报告摘要或同步状态。
 
-manifest 不能自引用包含自身的提交，因此 `implementationCommit` 不要求等于 `HEAD`。允许它落后于 `HEAD` 的唯一原因是 `deliverySyncPaths` 中预先列出的文档与审查同步；repository complete 只有在匹配 `repositoryAttestation` policy 的 GitHub 签名 exact-head attestation 已发布并通过在线验证后才可达，不能在 manifest、环境或命令输出中预填或伪造。
+manifest 不能自引用包含自身的提交，因此 `implementationCommit` 不要求等于 `HEAD`。允许它落后于 `HEAD` 的唯一原因是 `deliverySyncPaths` 中预先列出的文档与审查同步；repository complete 只有在匹配 `repositoryAttestation` policy 的 GitHub 签名 implementation-commit attestation 已发布并通过在线验证后才可达。该证明不表示当前 docs HEAD 自身已签，状态也不能在 manifest、环境或命令输出中预填或伪造。

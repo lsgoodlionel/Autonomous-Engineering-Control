@@ -9,7 +9,7 @@
 - 固定 digest 的 Linux wrapper 集成测试零 skip。
 - portable install、`doctor`、fake drill 和 uninstall smoke 通过。
 - workflow 危险参数扫描、文档引用、`git diff --check` 和秘密扫描通过。
-- repository complete 由匹配 `expectedRepository`、`repositoryAttestation.signerWorkflow` 与 `sourceRef` 的 GitHub Actions 对 exact-head archive 生成签名 artifact attestation；`check-docs` 重建 archive 并以 `gh attestation verify --repo --signer-workflow --source-digest --source-ref` 在线验证。自报或手填环境输出不是发布证据，无 attestation、`gh`、令牌或网络时失败关闭。
+- repository complete 由匹配 `expectedRepository`、`repositoryAttestation.signerWorkflow` 与 `sourceRef` 的 GitHub Actions 对 implementation commit archive 生成签名 artifact attestation；`check-docs` 重建 manifest 指定的 implementation archive，并以 `gh attestation verify --repo --signer-workflow --source-digest=<implementationCommit> --source-ref` 在线验证。当前 docs descendant HEAD 不声称自身已签；自报或手填环境输出不是发布证据，无对应 attestation、`gh`、令牌或网络时失败关闭。
 - 发布包内容检查证明不含宿主状态、运行证据、缓存或秘密。
 - 仓库所有者已选择许可证并创建 `LICENSE`；在此之前不得正式公开发布。
 

@@ -60,6 +60,17 @@ class GovernanceWorkflowTests(unittest.TestCase):
         self.assertNotIn("continue-on-error", self.text)
         self.assertNotRegex(self.text, r"gh attestation verify[^\n]*\|\|\s*true")
 
+    def test_workflow_attests_each_successful_main_push_without_manifest_state_gate(self):
+        attestation_job = self.text.split("  attest-exact-head:", 1)[1]
+        self.assertIn("if: github.event_name == 'push' && github.ref == 'refs/heads/main'",
+                      attestation_job)
+        self.assertIn("needs: [unit, linux-integration]", attestation_job)
+        self.assertIn("git archive --format=tar --output \"$ATTESTATION_SUBJECT\" HEAD",
+                      attestation_job)
+        self.assertIn('--source-digest "$GITHUB_SHA"', attestation_job)
+        self.assertNotIn("repositoryStatus", attestation_job)
+        self.assertNotIn("DELIVERY.json", attestation_job)
+
     def test_macos_python_policy_uses_hosted_toolcache_not_homebrew(self):
         wrapper = (REPO / "scripts/agent-harness").read_text(encoding="utf-8")
         self.assertIn("/Users/runner/hostedtoolcache/Python", wrapper)

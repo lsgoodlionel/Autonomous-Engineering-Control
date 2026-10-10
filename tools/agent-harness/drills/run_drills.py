@@ -540,24 +540,25 @@ def _delivery_history_paths(root: Path, implementation_commit: str) -> tuple[byt
     return tuple(changed)
 
 
-def _validate_repository_attestation(root: Path, host: dict) -> None:
+def _validate_repository_attestation(root: Path, host: dict,
+                                     implementation_commit: str) -> None:
     policy = host["repositoryAttestation"]
-    head = _git(root, "rev-parse", "HEAD")
     signer = ("https://github.com/" + host["expectedRepository"] + "/"
               + policy["signerWorkflow"])
     try:
         with tempfile.TemporaryDirectory(prefix="agent-harness-attestation-") as directory:
-            archive = Path(directory) / "exact-head.tar"
+            archive = Path(directory) / "implementation.tar"
             archived = _run([
-                "git", "archive", "--format=tar", "--output", str(archive), head,
+                "git", "archive", "--format=tar", "--output", str(archive),
+                implementation_commit,
             ], root, check=False)
             if archived.returncode or not archive.is_file() or archive.is_symlink():
-                raise DrillRefused("exact-head attestation subject could not be created")
+                raise DrillRefused("implementation attestation subject could not be created")
             verified = _run([
                 "gh", "attestation", "verify", str(archive),
                 "--repo", host["expectedRepository"],
                 "--signer-workflow", signer,
-                "--source-digest", head,
+                "--source-digest", implementation_commit,
                 "--source-ref", policy["sourceRef"],
             ], root, check=False)
             if verified.returncode:
@@ -1154,7 +1155,7 @@ def check_docs(repo: Path, host: dict) -> None:
                 raise ValueError()
             repository_status = external.get("repository", external.get("github"))
             if repository_status == "complete":
-                _validate_repository_attestation(root, host)
+                _validate_repository_attestation(root, host, commit)
         _validate_review_evidence(root, manifest, not bootstrap and external.get("independentReview") == "complete")
         ledger = ledger_path.read_text(encoding="utf-8")
         for task, steps in manifest["taskSteps"].items():

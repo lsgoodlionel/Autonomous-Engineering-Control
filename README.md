@@ -55,7 +55,7 @@ scripts/agent-harness finalize --run-id <run-id>
 - Gate 使用参数数组，不把计划、日志或模型输出拼接为 Shell 命令。
 - 同一失败指纹最多自动修复 3 次；单 Milestone 最多 5 个失败周期；连续 2 轮无进展即暂停。
 - HEAD 改变后旧 Gate 证据失效；只有当前 HEAD 的必需 Gate 全部通过才可完成。
-- delivery 同步逐 commit/parent 检查路径历史；repository complete 只由最小权限 GitHub Actions 对 exact-head archive 生成并验证的签名 artifact attestation 证明，本地环境变量不能充当身份。
+- delivery 同步逐 commit/parent 检查 `implementationCommit..HEAD` 路径历史；repository complete 只验证 GitHub Actions 为 manifest 指定的真实实现提交生成的签名 artifact attestation，后续 HEAD 只能包含 allowlist 内的文档同步，本地环境变量不能充当身份。
 - 原始日志留在忽略目录；提交材料只包含经过脱敏的最小证据。
 
 安全边界与威胁模型见 [安全模型](docs/security-model.md)，漏洞报告方式见 [SECURITY.md](SECURITY.md)。

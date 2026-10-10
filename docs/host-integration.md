@@ -12,7 +12,7 @@
 
 默认 delivery manifest 使用 `not_started`、空报告和固定 reviewer 列表 `security`、`dx_ci`、`whole_branch`。对应状态文档带同值 marker，因此初始模板可以直接通过 `--check-docs`；产生实现提交后再按交付状态机更新证据和 marker。
 
-`deliverySyncPaths` 必须在实现证据建立前确定，只列 active plan、delivery manifest、ledger、状态文档和预定的 Markdown review 文件，且全部使用精确仓库相对路径。实现提交后的文档与审查同步可继续推进；检查会遍历每个 descendant commit 的每个 parent，并按 NUL 分隔结果检查 rename 两端，所以禁止路径不能通过后续恢复或 merge 隐藏。`expectedRepository` 绑定 GitHub `OWNER/REPOSITORY`，`repositoryAttestation.signerWorkflow` 与 `sourceRef` 绑定允许签名的 workflow 和分支。repository complete 必须先由该 workflow 对 exact-head archive 生成签名 attestation；随后 `check-docs` 重建同一 archive 并在线调用 `gh attestation verify`。伪造 GitHub 环境变量无效，缺少 attestation、`gh`、令牌、网络或验证失败都会拒绝。
+`deliverySyncPaths` 必须在实现证据建立前确定，只列 active plan、delivery manifest、ledger、状态文档和预定的 Markdown review 文件，且全部使用精确仓库相对路径。实现提交后的文档与审查同步可继续推进；检查会遍历 `implementationCommit..HEAD` 中每个 descendant commit 的每个 parent，并按 NUL 分隔结果检查 rename 两端，所以禁止路径不能通过后续恢复或 merge 隐藏。`expectedRepository` 绑定 GitHub `OWNER/REPOSITORY`，`repositoryAttestation.signerWorkflow` 与 `sourceRef` 绑定允许签名的 workflow 和分支。实现 commit 首次 push 时 repository 保持 pending，workflow 在测试通过后签该 HEAD；后续 docs-only commit 标记 complete 时，`check-docs` 重建并验证 manifest 指定的 implementation archive，而不要求当前 docs HEAD 自身已签。伪造 GitHub 环境变量无效，缺少对应 attestation、`gh`、令牌、网络或验证失败都会拒绝。
 
 ## Gate 设计
 

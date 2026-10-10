@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "rules": [
+    {
+      "id": "secrets",
+      "patterns": [".env", ".env.*", "**/.env", "**/.env.*", "id_rsa", "id_ed25519", "**/id_rsa", "**/id_ed25519", "*.pem", "*.key", "**/*.pem", "**/*.key", "credentials.json", "**/credentials.json", "var/agent-harness/**"],
+      "operations": ["add", "modify", "delete"],
+      "action": "deny"
+    },
+    {
+      "id": "automation-and-distribution",
+      "patterns": [".github/workflows/**", "install.sh", "upgrade.sh", "uninstall.sh", "scripts/agent-harness", "tools/agent-harness/agent_harness/codex_adapter.py"],
+      "operations": ["add", "modify", "delete"],
+      "action": "approval_required"
+    },
+    {
+      "id": "default-review",
+      "patterns": ["**"],
+      "operations": ["add", "modify", "delete"],
+      "action": "review_required"
+    }
+  ]
+}

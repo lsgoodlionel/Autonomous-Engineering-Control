@@ -1,0 +1,58 @@
+name: control-plane-ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  unit:
+    runs-on: ubuntu-24.04
+    env:
+      AGENT_HARNESS_CI: '1'
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.11'
+      - name: Harden controlled Python
+        run: chmod go-w /opt/hostedtoolcache/Python "${pythonLocation%/*}" "$pythonLocation" "$pythonLocation/bin" "$pythonLocation/bin/python3.11"
+      - name: Verify controlled Python
+        run: scripts/agent-harness --python --version 2>&1 | grep '^Python 3\.11\.'
+      - name: Run unit contracts
+        run: scripts/agent-harness --python tools/agent-harness/run_tests.py --exclude-substring linux_wrapper --fail-on-skip
+      - name: Run deterministic drills
+        run: scripts/agent-harness --python tools/agent-harness/drills/run_drills.py
+      - name: Scan governed commands
+        run: scripts/agent-harness --python tools/agent-harness/drills/run_drills.py --check-forbidden-options
+
+  linux-integration:
+    needs: unit
+    runs-on: ubuntu-24.04
+    env:
+      AGENT_HARNESS_CI: '1'
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.11'
+      - name: Harden controlled Python
+        run: chmod go-w /opt/hostedtoolcache/Python "${pythonLocation%/*}" "$pythonLocation" "$pythonLocation/bin" "$pythonLocation/bin/python3.11"
+      - name: Verify controlled Python
+        run: scripts/agent-harness --python --version 2>&1 | grep '^Python 3\.11\.'
+      - name: Pull pinned Linux fixture
+        run: docker pull python:3.11-slim@sha256:e88e9763f943ec1834f992a4b51e0f24500486803e8bc534e5767af9ea65f6ce
+      - name: Run Linux wrapper contracts
+        run: >-
+          scripts/agent-harness --python tools/agent-harness/run_tests.py
+          --include-substring linux_wrapper --fail-on-skip --ci
+          --linux-image python:3.11-slim@sha256:e88e9763f943ec1834f992a4b51e0f24500486803e8bc534e5767af9ea65f6ce
+          --docker /usr/bin/docker
+

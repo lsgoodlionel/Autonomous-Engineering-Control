@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "gates": [
+    {
+      "id": "diff-check",
+      "command": ["git", "diff", "--check"],
+      "cwd": ".",
+      "timeout_seconds": 30
+    },
+    {
+      "id": "harness-tests",
+      "command": ["scripts/agent-harness", "--python", "tools/agent-harness/run_tests.py", "--exclude-substring", "linux_wrapper", "--fail-on-skip"],
+      "cwd": ".",
+      "timeout_seconds": 600
+    },
+    {
+      "id": "forbidden-options",
+      "command": ["scripts/agent-harness", "--python", "tools/agent-harness/drills/run_drills.py", "--check-forbidden-options"],
+      "cwd": ".",
+      "timeout_seconds": 60
+    }
+  ],
+  "profiles": {
+    "control-plane": {
+      "paths": ["scripts/**", "tools/agent-harness/**", "docs/agent/**", ".github/workflows/**"],
+      "gates": ["diff-check", "harness-tests", "forbidden-options"]
+    },
+    "documentation": {
+      "paths": ["README.md", "docs/**", "templates/**", "examples/**"],
+      "gates": ["diff-check"]
+    },
+    "distribution": {
+      "paths": ["install.sh", "upgrade.sh", "uninstall.sh", "VERSION", "CHANGELOG.md"],
+      "gates": ["diff-check", "harness-tests"]
+    }
+  }
+}
+

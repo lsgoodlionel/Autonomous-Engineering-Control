@@ -29,6 +29,9 @@ jobs:
         shell: bash
         run: |
           for path in "${pythonLocation%/*/*}" "${pythonLocation%/*}" "$pythonLocation" "$pythonLocation/bin" "$pythonLocation/bin/python${{ matrix.python }}"; do
+            if [[ -L "$path" ]]; then
+              continue
+            fi
             if [[ "$(uname -s)" == "Darwin" ]]; then
               mode=$(stat -f '%Lp' "$path")
             else
@@ -64,6 +67,9 @@ jobs:
       - name: Harden controlled Python
         run: |
           for path in "${pythonLocation%/*/*}" "${pythonLocation%/*}" "$pythonLocation" "$pythonLocation/bin" "$pythonLocation/bin/python3.11"; do
+            if [[ -L "$path" ]]; then
+              continue
+            fi
             if [[ "$(uname -s)" == "Darwin" ]]; then
               mode=$(stat -f '%Lp' "$path")
             else

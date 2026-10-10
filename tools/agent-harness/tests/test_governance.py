@@ -91,6 +91,8 @@ class GovernanceWorkflowTests(unittest.TestCase):
             "- name: Verify controlled Python", 1
         )[0]
         self.assertIn('for path in "${pythonLocation%/*/*}"', hardening)
+        self.assertIn('if [[ -L "$path" ]]; then', hardening)
+        self.assertIn("continue", hardening)
         self.assertIn('stat -f \'%Lp\' "$path"', hardening)
         self.assertIn('stat -c \'%a\' "$path"', hardening)
         self.assertIn('if (( (8#$mode & 0022) != 0 )); then', hardening)

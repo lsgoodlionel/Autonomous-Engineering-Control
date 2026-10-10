@@ -24,6 +24,7 @@
 - delivery 同步改为逐 descendant commit、逐 parent 的 NUL-safe 路径历史校验；repository complete 改由限定 repository/workflow 的 GitHub signed implementation-commit artifact attestation 证明，后续仅允许预声明文档同步，本地环境变量不再被信任。
 - distribution 将 validated repository root identity 贯穿全部操作；install rollback 保存创建时 identity，replace/unlink 采用同父目录 quarantine rename，并保留随机 private entry，避免 POSIX identity-unbound unlink 误删并发换入的宿主文件。
 - generated 路径不再无条件拒绝；只有策略绑定的固定 argv 在临时输入树中重跑并精确复现当前输出后，才允许 scope bind 和 Gate，`deny`、`approval_required` 与普通 `review_required` 语义保持不变。
+- GitHub Actions 的 Python 信任链加固仅修改 runner 当前可写的 toolcache 节点；macOS 受保护且已满足权限约束的目录和解释器保持只读，并继续由 Harness 做最终信任校验。
 
 ### Known limitations
 

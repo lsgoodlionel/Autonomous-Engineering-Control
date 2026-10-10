@@ -27,7 +27,12 @@ jobs:
           python-version: ${{ matrix.python }}
       - name: Harden controlled Python
         shell: bash
-        run: chmod go-w "${pythonLocation%/*/*}" "${pythonLocation%/*}" "$pythonLocation" "$pythonLocation/bin" "$pythonLocation/bin/python${{ matrix.python }}"
+        run: |
+          for path in "${pythonLocation%/*/*}" "${pythonLocation%/*}" "$pythonLocation" "$pythonLocation/bin" "$pythonLocation/bin/python${{ matrix.python }}"; do
+            if [[ -w "$path" ]]; then
+              chmod go-w "$path"
+            fi
+          done
       - name: Verify controlled Python
         run: scripts/agent-harness --python --version 2>&1 | grep "^Python ${{ matrix.python }}\\."
       - name: Run unit contracts
@@ -52,7 +57,12 @@ jobs:
         with:
           python-version: '3.11'
       - name: Harden controlled Python
-        run: chmod go-w "${pythonLocation%/*/*}" "${pythonLocation%/*}" "$pythonLocation" "$pythonLocation/bin" "$pythonLocation/bin/python3.11"
+        run: |
+          for path in "${pythonLocation%/*/*}" "${pythonLocation%/*}" "$pythonLocation" "$pythonLocation/bin" "$pythonLocation/bin/python3.11"; do
+            if [[ -w "$path" ]]; then
+              chmod go-w "$path"
+            fi
+          done
       - name: Verify controlled Python
         run: scripts/agent-harness --python --version 2>&1 | grep '^Python 3\.11\.'
       - name: Pull pinned Linux fixture

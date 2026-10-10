@@ -86,6 +86,15 @@ class GovernanceWorkflowTests(unittest.TestCase):
         self.assertIn("/Users/runner/hostedtoolcache/Python", wrapper)
         self.assertNotIn("/opt/homebrew", wrapper)
 
+    def test_python_hardening_skips_read_only_toolcache_entries(self):
+        hardening = self.text.split("- name: Harden controlled Python", 1)[1].split(
+            "- name: Verify controlled Python", 1
+        )[0]
+        self.assertIn('for path in "${pythonLocation%/*/*}"', hardening)
+        self.assertIn('if [[ -w "$path" ]]; then', hardening)
+        self.assertIn('chmod go-w "$path"', hardening)
+        self.assertNotIn('run: chmod go-w ', hardening)
+
     def test_workflow_has_no_delivery_side_effects(self):
         for pattern in (r"\bgit\s+push\b", r"\bgh\s+release\b", r"\bdeploy(?:ment)?\b",
                         r"pull-requests:\s*write", r"packages:\s*write"):

@@ -29,7 +29,12 @@ jobs:
         shell: bash
         run: |
           for path in "${pythonLocation%/*/*}" "${pythonLocation%/*}" "$pythonLocation" "$pythonLocation/bin" "$pythonLocation/bin/python${{ matrix.python }}"; do
-            if [[ -w "$path" ]]; then
+            if [[ "$(uname -s)" == "Darwin" ]]; then
+              mode=$(stat -f '%Lp' "$path")
+            else
+              mode=$(stat -c '%a' "$path")
+            fi
+            if (( (8#$mode & 0022) != 0 )); then
               chmod go-w "$path"
             fi
           done
@@ -59,7 +64,12 @@ jobs:
       - name: Harden controlled Python
         run: |
           for path in "${pythonLocation%/*/*}" "${pythonLocation%/*}" "$pythonLocation" "$pythonLocation/bin" "$pythonLocation/bin/python3.11"; do
-            if [[ -w "$path" ]]; then
+            if [[ "$(uname -s)" == "Darwin" ]]; then
+              mode=$(stat -f '%Lp' "$path")
+            else
+              mode=$(stat -c '%a' "$path")
+            fi
+            if (( (8#$mode & 0022) != 0 )); then
               chmod go-w "$path"
             fi
           done

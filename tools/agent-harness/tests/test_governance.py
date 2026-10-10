@@ -91,8 +91,11 @@ class GovernanceWorkflowTests(unittest.TestCase):
             "- name: Verify controlled Python", 1
         )[0]
         self.assertIn('for path in "${pythonLocation%/*/*}"', hardening)
-        self.assertIn('if [[ -w "$path" ]]; then', hardening)
+        self.assertIn('stat -f \'%Lp\' "$path"', hardening)
+        self.assertIn('stat -c \'%a\' "$path"', hardening)
+        self.assertIn('if (( (8#$mode & 0022) != 0 )); then', hardening)
         self.assertIn('chmod go-w "$path"', hardening)
+        self.assertNotIn('[[ -w "$path" ]]', hardening)
         self.assertNotIn('run: chmod go-w ', hardening)
 
     def test_workflow_has_no_delivery_side_effects(self):

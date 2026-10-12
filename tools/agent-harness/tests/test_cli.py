@@ -15,6 +15,96 @@ from agent_harness.cli import main
 
 
 class CliTests(WorktreeCase):
+    def test_install_global_policy_cli_dry_run_then_idempotent_apply(self):
+        templates = self.repo / "tools/agent-harness/templates"
+        self.write(templates / "global-token-rules.md", "- bounded summaries\n")
+        self.write(templates / "engineering-token-efficiency.md", "# Method\n")
+        self.write(self.repo / "docs/agent/MEMORY_PROJECTIONS.json", json.dumps({
+            "version": 1, "projections": [{
+                "id": "progress", "notePath": "Project/Progress.md",
+                "startMarker": "s", "endMarker": "e",
+            }],
+        }))
+        self.write(self.repo / "docs/agent/HARNESS_HOST.json",
+                   json.dumps({"expectedRepository": "owner/repo"}))
+        home = self.root / "codex-home"
+        (home / "memories").mkdir(parents=True)
+        self.write(home / "AGENTS.md", "human\n")
+        code, output, stderr = self.call(
+            "install-global-policy", "--codex-home", str(home), "--dry-run", "--json")
+        self.assertEqual(code, 0, output + stderr)
+        self.assertEqual(len(json.loads(output)["changed"]), 3)
+        self.assertEqual((home / "AGENTS.md").read_text(), "human\n")
+        self.assertEqual(self.call("install-global-policy", "--codex-home", str(home))[0], 0)
+        result = json.loads(self.call("install-global-policy", "--codex-home", str(home),
+                                      "--dry-run", "--json")[1])
+        self.assertEqual(result["changed"], [])
+
+    def memory_fixture(self):
+        self.write(self.repo / "docs/agent/MEMORY_PROJECTIONS.json", json.dumps({
+            "version": 1,
+            "projections": [{
+                "id": "progress", "notePath": "Project/Progress.md",
+                "startMarker": "<!-- codex:progress:start -->",
+                "endMarker": "<!-- codex:progress:end -->",
+            }],
+        }))
+        self.write(self.repo / "docs/agent/HARNESS_HOST.json", json.dumps({
+            "deliveryManifest": "docs/agent/HARNESS_DELIVERY.json"
+        }))
+        self.write(self.repo / "docs/agent/HARNESS_DELIVERY.json", json.dumps({
+            "deliveryStatus": "pending", "externalSync": {"repository": "pending"}
+        }))
+        self.git("add", "docs/agent/MEMORY_PROJECTIONS.json",
+                 "docs/agent/HARNESS_HOST.json", "docs/agent/HARNESS_DELIVERY.json")
+        self.git("commit", "-m", "memory fixture")
+        return self.root / "vault"
+
+    def test_memory_cli_configures_reports_and_syncs_without_exposing_host_path(self):
+        vault = self.memory_fixture()
+        vault.mkdir()
+        code, output, stderr = self.call(
+            "configure-memory", "--vault", str(vault), "--json")
+        self.assertEqual(code, 0, output + stderr)
+        self.assertNotIn(str(vault), output)
+        self.assertEqual(json.loads(output)["vaultAvailable"], True)
+        self.init_run()
+        code, output, stderr = self.call("sync-memory", "--run-id", self.state.run_id,
+                                         "--json")
+        self.assertEqual(code, 0, output + stderr)
+        self.assertEqual(json.loads(output)["updated"], ["progress"])
+        self.assertIn("Harness run", (vault / "Project/Progress.md").read_text())
+        status = json.loads(self.call("memory-status", "--json")[1])
+        self.assertEqual(status["synced"], ["progress"])
+
+    def test_token_report_cli_emits_aggregate_only_json(self):
+        sessions = self.root / "sessions"
+        sessions.mkdir()
+        events = [
+            {"timestamp": "2026-10-12T01:00:00Z", "type": "session_meta",
+             "payload": {"id": "main", "cwd": str(self.repo), "source": "cli"}},
+            {"timestamp": "2026-10-12T02:00:00Z", "type": "event_msg",
+             "payload": {"type": "token_count", "info": {"total_token_usage": {
+                 "input_tokens": 10, "cached_input_tokens": 6, "output_tokens": 2,
+                 "reasoning_output_tokens": 1, "total_tokens": 13}}}},
+            {"timestamp": "2026-10-12T02:01:00Z", "type": "response_item",
+             "payload": {"message": "TOKEN=fake-secret prompt"}},
+        ]
+        (sessions / "main.jsonl").write_text(
+            "\n".join(json.dumps(item) for item in events) + "\n", encoding="utf-8"
+        )
+        code, output, stderr = self.call(
+            "token-report", "--since", "2026-10-12T00:00:00Z",
+            "--until", "2026-10-13T00:00:00Z", "--format", "json",
+            "--session-root", str(sessions),
+        )
+        self.assertEqual(code, 0, output + stderr)
+        document = json.loads(output)
+        self.assertEqual(document["usage"]["rawTokens"], 13)
+        self.assertEqual(document["usage"]["activeTokens"], 7)
+        self.assertNotIn("fake-secret", output)
+        self.assertNotIn("message", output)
+
     def test_next_reports_registered_dirty_gate_failure_as_repair_read_only(self):
         path = self.repo / "docs/agent/GATE_MATRIX.yaml"
         matrix = json.loads(path.read_text())

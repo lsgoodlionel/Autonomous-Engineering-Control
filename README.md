@@ -6,11 +6,21 @@
 
 ## 能力边界
 
-- 核心层：`scripts/agent-harness` 与 `tools/agent-harness/`，提供 CLI、状态机、Gate、Git 约束、故障演练和诊断脱敏。
+- 核心层：`scripts/agent-harness` 与 `tools/agent-harness/`，提供 CLI、状态机、Gate、Git 约束、故障演练、诊断脱敏和 Token 高效执行。
 - 宿主层：由接入项目维护 `AGENTS.md` 和 `docs/agent/`，声明计划、质量门、保护路径、稳定记忆与秘密策略。
 - 运行层：`var/agent-harness/` 保存状态、事件、证据和原始日志，必须被 Git 忽略，不进入发布包。
 
 套件不会猜测宿主使用 Node、Java、Docker 或其他工具，也不会自动批准依赖、迁移、认证、生产、推送、合并和发布操作。
+
+## Token 高效执行
+
+- Context Capsule 将稳定规则、任务增量和失败诊断分层，并执行 12 KiB/8 KiB/4 KiB 字节预算。
+- Gate Summary 成功时不携带 stdout/stderr；失败只暴露脱敏、去重且有界的诊断。
+- EvidenceKey 绑定仓库、HEAD、命令、环境、输入、策略、schema 与 runtime；GateLease 合并相同并发执行。
+- Token Telemetry 只汇总数值元数据，implementation 与 reviewer 分开统计，不读取或输出消息正文。
+- GitHub 摘要导入同时验证 artifact digest 与 provenance attestation；知识库同步是 marker 管理的单向投影。
+
+操作口径与命令见 [Token 高效工程手册](docs/agent/TOKEN_EFFICIENCY.md)。
 
 ## 环境要求
 
@@ -67,6 +77,7 @@ scripts/agent-harness finalize --run-id <run-id>
 - [安装指南](docs/install.md)
 - [宿主接入](docs/host-integration.md)
 - [配置参考](docs/configuration-reference.md)
+- [Token 高效工程手册](docs/agent/TOKEN_EFFICIENCY.md)
 - [运行与恢复](docs/operations.md)
 - [安全模型](docs/security-model.md)
 - [升级](docs/upgrade.md)

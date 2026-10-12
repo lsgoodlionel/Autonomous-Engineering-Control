@@ -141,3 +141,24 @@ jobs:
           --signer-workflow "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/.github/workflows/ci.yml"
           --source-digest "$GITHUB_SHA"
           --source-ref "$GITHUB_REF"
+      - name: Emit sanitized Gate summary
+        run: >-
+          scripts/agent-harness --python -m agent_harness.github_evidence
+          --repository "$GITHUB_REPOSITORY"
+          --workflow .github/workflows/ci.yml
+          --commit-sha "$GITHUB_SHA"
+          --job attest-exact-head
+          --gate-id control-plane-ci
+          --conclusion success
+          --output gate-summaries/control-plane-ci.json
+      - name: Sign sanitized Gate summary provenance
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: gate-summaries/control-plane-ci.json
+      - name: Upload sanitized Gate summary
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: control-plane-gate-summary
+          path: gate-summaries/control-plane-ci.json
+          if-no-files-found: error
+          retention-days: 30

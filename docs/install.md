@@ -14,7 +14,7 @@
 1. 在目标项目建立专用分支；目标可以是主检出目录或 linked worktree。
 2. 从经过校验的 Release 制品运行 `./install.sh <目标仓库>`。
 3. 安装器从调用方提供的原始绝对目标路径开始逐组件 no-follow，并绑定 repository root 的 `(st_dev, st_ino)` 供后续每次 root open 复核；repository root、任一祖先、事务中的普通目录替换、`scripts/`、`tools/`、manifest 和宿主 seed 路径中的 symlink 都会被拒绝。任何已有核心目标文件都会使安装失败。
-4. 安装器生成 versioned `.agent-harness-install.json`，记录每个套件拥有文件的路径、模式和 SHA-256；manifest format 对应一个代码内登记的精确 owned-file set，不能用当前版本的文件集合误判旧 manifest，也不能通过篡改 manifest 认领宿主文件。缺失的宿主模板、active plan、delivery、ledger 与 smoke fixture 会完整 seed，已有普通宿主文件保持不变。
+4. 安装器生成 versioned `.agent-harness-install.json`，记录每个套件拥有文件的路径、模式和 SHA-256；manifest format 对应一个代码内登记的精确 owned-file set，不能用当前版本的文件集合误判旧 manifest，也不能通过篡改 manifest 认领宿主文件。format 4 同时安装 Context Capsule、Gate Summary、Evidence/Lease、Token Telemetry、GitHub evidence、知识库投影 runtime 与模板；缺失的宿主 schema、Token 规则、投影配置、active plan、delivery、ledger 与 smoke fixture会完整 seed，已有普通宿主文件保持不变。
 
 每个新文件先写入同父目录随机 private entry，取得 `(st_dev, st_ino)` 后以 no-clobber hard link 发布；`_write_new` 返回该 identity，install rollback 保存 `path + identity` 并只隔离仍匹配的目录项。若创建后有普通文件换入目标路径，回滚拒绝删除它。由于 POSIX 没有 inode-bound unlink，private entry 会保留并在输出中以仓库相对位置报告。
 5. 按 [宿主接入](host-integration.md) 替换占位内容，并创建已批准计划。

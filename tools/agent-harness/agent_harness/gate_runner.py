@@ -10,9 +10,17 @@ import re
 import signal
 import subprocess
 import tempfile
+import time
 from typing import Iterable, Tuple
+from uuid import uuid4
 
-from .config import GateDefinition, GateMatrix
+from .config import GateDefinition, GateMatrix, validate_gate_id
+from .evidence_cache import (
+    RuntimeIdentity, compute_evidence_key, lookup_cached_evidence,
+    publish_cached_evidence,
+)
+from .gate_summary import build_gate_summary, write_gate_summary_atomic
+from .gate_lease import acquire_gate_lease, release_gate_lease
 from .state import GateEvidence, GateStatus, RunState, RunStatus
 
 
@@ -72,9 +80,10 @@ def _validate_head(value: str) -> None:
         raise ValueError("HEAD must be a full lowercase commit SHA")
 
 
-def run_gate(repo: Path, gate: GateDefinition, evidence_dir: Path,
-             head_commit: str) -> GateEvidence:
+def _run_gate_once(repo: Path, gate: GateDefinition, evidence_dir: Path,
+                   head_commit: str, evidence_key: str | None = None) -> GateEvidence:
     """Execute a configured argv; metadata is the final record of an attempt."""
+    validate_gate_id(gate.id)
     if (not isinstance(gate.command, (tuple, list)) or not gate.command
             or any(not isinstance(arg, str) or not arg.strip() or "\x00" in arg
                    for arg in gate.command)
@@ -136,7 +145,8 @@ def run_gate(repo: Path, gate: GateDefinition, evidence_dir: Path,
                         process.wait()
     ended_at = datetime.now(timezone.utc)
     evidence = GateEvidence(gate.id, status, exit_code, started_at, ended_at,
-                            metadata_path.relative_to(root), head_commit)
+                            metadata_path.relative_to(root), head_commit,
+                            evidence_key=evidence_key)
     metadata = {
         "gateId": gate.id, "status": status.value, "exitCode": exit_code,
         "headCommit": head_commit, "startedAt": _timestamp(started_at),
@@ -159,7 +169,53 @@ def run_gate(repo: Path, gate: GateDefinition, evidence_dir: Path,
     finally:
         if temporary_path is not None:
             temporary_path.unlink(missing_ok=True)
+    summary_path = attempt / "summary.json"
+    evidence = replace(evidence, summary_path=summary_path.relative_to(root))
+    summary = build_gate_summary(root, gate, evidence)
+    write_gate_summary_atomic(summary_path, summary)
+    evidence = replace(evidence, diagnostic_bytes=(
+        len(summary.diagnostic.encode("utf-8")) if summary.diagnostic is not None else 0
+    ))
     return evidence
+
+
+def run_gate(repo: Path, gate: GateDefinition, evidence_dir: Path,
+             head_commit: str, *,
+             runtime_identity: RuntimeIdentity | None = None) -> GateEvidence:
+    """Execute once per trusted EvidenceKey and return reusable passing evidence."""
+    if runtime_identity is None:
+        return _run_gate_once(repo, gate, evidence_dir, head_commit)
+    root = Path(repo).resolve(strict=True)
+    try:
+        evidence_key = compute_evidence_key(root, gate, runtime_identity)
+    except (OSError, ValueError):
+        return _run_gate_once(root, gate, evidence_dir, head_commit)
+    cache_root = root / "var/agent-harness/cache/evidence"
+    owner = str(os.getpid()) + "-" + uuid4().hex
+    deadline = time.monotonic() + gate.timeout_seconds + 10
+    while time.monotonic() < deadline:
+        cached = lookup_cached_evidence(root, evidence_key, gate, head_commit)
+        if cached is not None:
+            return cached
+        lease = acquire_gate_lease(cache_root, evidence_key, owner,
+                                   min(86400, gate.timeout_seconds + 5))
+        if not lease.acquired:
+            time.sleep(0.02)
+            continue
+        try:
+            cached = lookup_cached_evidence(root, evidence_key, gate, head_commit)
+            if cached is not None:
+                return cached
+            evidence = _run_gate_once(root, gate, evidence_dir, head_commit, evidence_key)
+            if evidence.status == GateStatus.PASSED:
+                try:
+                    publish_cached_evidence(root, evidence_key, evidence)
+                except (OSError, ValueError):
+                    pass
+            return evidence
+        finally:
+            release_gate_lease(lease)
+    raise TimeoutError("Timed out waiting for Gate execution lease")
 
 
 def invalidate_stale_evidence(state: RunState, current_head: str) -> RunState:

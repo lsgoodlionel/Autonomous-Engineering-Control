@@ -4,7 +4,7 @@
 
 ### 核心层
 
-核心层包括 wrapper、Python 包、状态机、策略解析、Gate runner、Git guard、诊断脱敏、Codex adapter 和 drills。核心只接受版本化、可验证的宿主输入，不包含具体业务命令、产品路径、个人环境或交付状态。
+核心层包括 wrapper、Python 包、状态机、策略解析、Gate runner、Git guard、诊断脱敏、Codex adapter、Context Capsule、EvidenceKey/GateLease、Token Telemetry 和 drills。核心只接受版本化、可验证的宿主输入，不包含具体业务命令、产品路径、个人环境或交付状态。
 
 核心职责：
 
@@ -13,6 +13,8 @@
 - 校验保护路径、独立 worktree 和工作区漂移；对 generated 路径先建立输入/argv/输出摘要绑定并隔离重跑。
 - 原子保存状态，追加摘要链事件，保留当前 HEAD 的验证证据。
 - 在失败预算内修复，达到阈值后暂停并输出脱敏诊断。
+- 将完整 Gate 输出留在运行证据层，只向 Agent 提供结构化摘要；相同可信证据键可复用并由租约去重。
+- 生成字节预算受控、内容寻址的 Context Capsule，并将内容无关 Token 聚合与实现/复审用量分开。
 
 ### 宿主层
 
@@ -28,7 +30,7 @@
 
 ### 运行证据层
 
-每次运行在 `var/agent-harness/runs/<run-id>/` 下维护 `state.json`、`events.jsonl`、`diagnostics.md` 和 `evidence/`。该目录保存可能包含详细路径与原始输出的证据，必须被 Git 忽略，并通过文件系统权限、保留期和备份策略单独管理。
+每次运行在 `var/agent-harness/runs/<run-id>/` 下维护 `state.json`、`events.jsonl`、`diagnostics.md`、`evidence/` 和内容寻址胶囊。跨运行缓存、租约、Token 报告与知识库投影 journal 同样位于 `var/agent-harness/`。该目录保存可能包含详细路径与原始输出的证据，必须被 Git 忽略，并通过文件系统权限、保留期和备份策略单独管理。
 
 只有脱敏、最小、可复核的摘要适合进入版本库。运行证据不是永久项目记忆。
 

@@ -16,7 +16,14 @@
 - 不通过删除、跳过或放宽测试来制造通过；基础设施失败必须分类记录。
 - 运行自治任务必须使用独立 Git worktree，且不得与主检出目录共享可写构建状态。
 
-## 安全与交付
+## Token 与上下文
+
+- 新 Agent 默认只消费 Context Capsule 与任务增量；缺少事实时按来源定点读取，不重复加载完整计划、报告或知识库。
+- 成功 Gate 只输出结构化摘要；失败诊断必须脱敏、去重并限制在 4 KiB，原始日志留在 ignored runtime。
+- 相同 EvidenceKey 先复用可信证据或共享租约；严格 HEAD、发布和生产证据不得为节省 Token 放宽。
+- Token 优化不得减少测试、审查或验收；详细口径见 `docs/agent/TOKEN_EFFICIENCY.md`。
+
+## 安全与停止
 
 - 禁止提交令牌、密码、私钥、证书、完整认证 Header、原始模型事件或生产配置。
 - `var/agent-harness/`、缓存和构建产物不得进入提交或 Release 制品。

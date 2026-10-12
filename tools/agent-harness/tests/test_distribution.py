@@ -37,11 +37,28 @@ class DistributionTests(unittest.TestCase):
     def test_generated_verifier_uses_a_new_manifest_file_set_version(self):
         verifier = "tools/agent-harness/agent_harness/generated_verifier.py"
 
-        self.assertEqual(distribution.FORMAT_VERSION, 3)
+        self.assertEqual(distribution.FORMAT_VERSION, 4)
         self.assertNotIn(verifier, distribution.MANIFEST_FILE_SETS[2])
         self.assertIn(verifier, distribution.MANIFEST_FILE_SETS[3])
-        self.assertEqual(distribution.MANIFEST_FILE_SETS[3],
+        self.assertEqual(distribution.MANIFEST_FILE_SETS[4],
                          frozenset(distribution.RUNTIME_FILES))
+
+    def test_token_efficiency_runtime_uses_manifest_file_set_version_four(self):
+        additions = {
+            "tools/agent-harness/agent_harness/context_capsule.py",
+            "tools/agent-harness/agent_harness/evidence_cache.py",
+            "tools/agent-harness/agent_harness/gate_lease.py",
+            "tools/agent-harness/agent_harness/gate_summary.py",
+            "tools/agent-harness/agent_harness/github_evidence.py",
+            "tools/agent-harness/agent_harness/global_policy.py",
+            "tools/agent-harness/agent_harness/memory_projection.py",
+            "tools/agent-harness/agent_harness/strict_unittest.py",
+            "tools/agent-harness/agent_harness/token_report.py",
+            "tools/agent-harness/templates/engineering-token-efficiency.md",
+            "tools/agent-harness/templates/global-token-rules.md",
+        }
+        self.assertTrue(additions.isdisjoint(distribution.MANIFEST_FILE_SETS[3]))
+        self.assertTrue(additions <= distribution.MANIFEST_FILE_SETS[4])
 
     def git(self, repo, *args, check=True):
         return subprocess.run(["git", *args], cwd=repo, text=True,

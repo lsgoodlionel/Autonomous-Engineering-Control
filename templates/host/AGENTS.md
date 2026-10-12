@@ -23,6 +23,13 @@
 - 同一失败指纹 3 次、总失败周期 5 次、连续 2 轮无进展时暂停。
 - 计划、分支、HEAD、工作区归属或工具信任漂移时暂停并记录脱敏诊断。
 
+## Token 与上下文
+
+- 新 Agent 默认只消费 Context Capsule 与任务增量；缺少事实时按来源定点读取。
+- 成功 Gate 只输出结构化摘要；失败诊断脱敏、去重并限制在 4 KiB，原始日志留在 ignored runtime。
+- 相同 EvidenceKey 先复用可信证据或共享租约；严格 HEAD、发布和生产证据不得降级。
+- Token 优化不得减少测试、审查或验收；详细口径见 `docs/agent/TOKEN_EFFICIENCY.md`。
+
 ## 交付
 
 - 必需 Gate 全部在当前 HEAD 通过并留存证据后才能完成。

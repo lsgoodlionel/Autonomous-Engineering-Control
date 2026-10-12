@@ -16,7 +16,7 @@ import sys
 
 MANIFEST_PATH = ".agent-harness-install.json"
 LEGACY_MANIFEST_PATH = ".agent-harness-install"
-FORMAT_VERSION = 3
+FORMAT_VERSION = 4
 FORMAT_1_RUNTIME_FILES = (
     "scripts/agent-harness",
     "tools/agent-harness/agent_harness/__init__.py",
@@ -35,13 +35,27 @@ FORMAT_1_RUNTIME_FILES = (
     "tools/agent-harness/run_tests.py",
 )
 FORMAT_2_RUNTIME_FILES = FORMAT_1_RUNTIME_FILES
-RUNTIME_FILES = FORMAT_2_RUNTIME_FILES + (
+FORMAT_3_RUNTIME_FILES = FORMAT_2_RUNTIME_FILES + (
     "tools/agent-harness/agent_harness/generated_verifier.py",
+)
+RUNTIME_FILES = FORMAT_3_RUNTIME_FILES + (
+    "tools/agent-harness/agent_harness/context_capsule.py",
+    "tools/agent-harness/agent_harness/evidence_cache.py",
+    "tools/agent-harness/agent_harness/gate_lease.py",
+    "tools/agent-harness/agent_harness/gate_summary.py",
+    "tools/agent-harness/agent_harness/github_evidence.py",
+    "tools/agent-harness/agent_harness/global_policy.py",
+    "tools/agent-harness/agent_harness/memory_projection.py",
+    "tools/agent-harness/agent_harness/strict_unittest.py",
+    "tools/agent-harness/agent_harness/token_report.py",
+    "tools/agent-harness/templates/engineering-token-efficiency.md",
+    "tools/agent-harness/templates/global-token-rules.md",
 )
 MANIFEST_FILE_SETS = {
     1: frozenset(FORMAT_1_RUNTIME_FILES),
     2: frozenset(FORMAT_2_RUNTIME_FILES),
-    3: frozenset(RUNTIME_FILES),
+    3: frozenset(FORMAT_3_RUNTIME_FILES),
+    4: frozenset(RUNTIME_FILES),
 }
 LEGACY_INSTALLS = {
     "0.1.0": (
@@ -64,13 +78,18 @@ LEGACY_INSTALLS = {
 HOST_SEED_FILES = (
     "AGENTS.md",
     "docs/agent/AUTONOMY.md",
+    "docs/agent/CONTEXT_CAPSULE_SCHEMA.json",
     "docs/agent/GATE_MATRIX.yaml",
+    "docs/agent/GATE_SUMMARY_SCHEMA.json",
     "docs/agent/HARNESS_DELIVERY.json",
     "docs/agent/HARNESS_HOST.json",
+    "docs/agent/MEMORY_PROJECTIONS.json",
     "docs/agent/PROGRESS.md",
     "docs/agent/PROJECT_MEMORY.md",
     "docs/agent/PROTECTED_PATHS.yaml",
     "docs/agent/STATE_SCHEMA.json",
+    "docs/agent/TOKEN_EFFICIENCY.md",
+    "docs/agent/TOKEN_REPORT_SCHEMA.json",
     "docs/superpowers/plans/approved-plan.md",
     "docs/superpowers/plans/real-executor-smoke.md",
     "tests/fixtures/real_executor_smoke.txt",

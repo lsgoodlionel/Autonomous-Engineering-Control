@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "machineBlockVersion": 1,
+  "projections": [
+    {
+      "id": "control-plane-progress",
+      "notePath": "Projects/Autonomous-Engineering-Control/Progress.md",
+      "startMarker": "<!-- codex-control-plane-progress:start -->",
+      "endMarker": "<!-- codex-control-plane-progress:end -->"
+    }
+  ]
+}

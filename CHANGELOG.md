@@ -2,6 +2,27 @@
 
 本项目遵循语义化版本。正式 Release 日期在发布时填写。
 
+## [0.2.0] - Unreleased
+
+### Added
+
+- Context Capsule、Gate Summary、EvidenceKey、GateLease 和隐私安全 Token Telemetry。
+- marker 管理的单向知识库投影、可复用全局 Token 规则安装器和 strict zero-skip unittest runner。
+- GitHub Gate 摘要的 artifact digest 与 provenance attestation 双重验证。
+
+### Changed
+
+- distribution manifest 升级为 format 4，安装与升级会携带全部 Token 高效 runtime、schema、模板和宿主配置。
+- 状态 wire contract 写入版本 2，同时保留严格版本 1 读取兼容。
+- Gate Matrix 版本 2 支持执行层、复用策略、输入模式和摘要格式；版本 1 保持安全的 HEAD-only 默认值。
+- 成功 Gate 不再向 Agent 暴露 stdout/stderr，失败诊断限制为脱敏有界摘要。
+
+### Security
+
+- EvidenceKey 绑定策略、schema、Harness 实现、runtime 与文件模式；symlink 输入和不确定 runtime 均失败关闭。
+- 过期租约只有在完成证据无效且本机 owner PID 不存活时才允许接管。
+- 相同 GitHub workflow 的摘要没有匹配 attestation 时拒绝导入。
+
 ## [0.1.0] - Unreleased
 
 ### Added

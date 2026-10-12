@@ -16,6 +16,8 @@
 - generated 路径先在临时输入树中用策略登记 argv 重跑；输入、输出、写集、工具或超时不满足时暂停。
 - 状态写入 `var/agent-harness/runs/`，原始输出不提交。
 - 自动修复预算：同一指纹 3 次、总失败周期 5 次、连续无进展 2 轮。
+- 每轮从 Context Capsule 开始；成功 Gate 不注入日志，失败只注入有界脱敏诊断。
+- EvidenceKey、GateLease 与 GitHub attestation 只能减少重复执行，不能绕过当前 HEAD 验收。
 
 ## 人工升级
 

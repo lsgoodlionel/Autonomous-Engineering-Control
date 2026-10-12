@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "machineBlockVersion": 1,
+  "projections": [
+    {
+      "id": "project-progress",
+      "notePath": "Projects/PROJECT/Progress.md",
+      "startMarker": "<!-- codex-project-progress:start -->",
+      "endMarker": "<!-- codex-project-progress:end -->"
+    }
+  ]
+}

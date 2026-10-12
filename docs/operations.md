@@ -40,7 +40,19 @@ scripts/agent-harness resume --run-id <run-id>
 
 ## 证据管理
 
-Gate 证据只对记录的 HEAD 有效。提交新修复后，旧证据必须失效并重跑。原始日志放在 `var/agent-harness/`；可提交摘要应包含计划、Milestone、HEAD、Gate、结果、失败分类和恢复命令，且不得复制秘密或完整原始输出。
+Gate 证据默认只对记录的 HEAD 有效。只有明确声明 `content` 复用策略且 EvidenceKey 的仓库、命令、环境、输入、策略、schema 和 runtime 全部一致时才可跨 HEAD 复用；严格、发布和生产 Gate 始终绑定完整 HEAD。原始日志放在 `var/agent-harness/`；可提交摘要应包含计划、Milestone、HEAD、Gate、结果、失败分类和恢复命令，且不得复制秘密或完整原始输出。
+
+## Token 与知识库
+
+```sh
+scripts/agent-harness token-report --since <RFC3339> --until <RFC3339> --format json
+scripts/agent-harness configure-memory --vault <absolute-local-path>
+scripts/agent-harness memory-status --json
+scripts/agent-harness sync-memory --run-id <run-id> --json
+scripts/agent-harness install-global-policy --codex-home "$HOME/.codex" --dry-run
+```
+
+成功 Gate 不进入模型日志；失败诊断默认不超过 4 KiB。知识库同步只更新 `MEMORY_PROJECTIONS.json` 登记的 marker 块；Vault 不可用时记录 pending，恢复后重放，机器块被人工修改时失败关闭。
 
 ## 故障演练
 

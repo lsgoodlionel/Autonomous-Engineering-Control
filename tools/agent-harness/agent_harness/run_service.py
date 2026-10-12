@@ -18,11 +18,16 @@ import xml.etree.ElementTree as ET
 from .config import load_gate_matrix, load_protected_paths, validate_gate_id
 from .diagnostics import redact_text, render_diagnostics, failure_fingerprint, record_failure, _read_log, _first_error
 from .codex_adapter import build_codex_command, controlled_tool_errors, run_codex, run_with_controlled_tools
+from .context_capsule import build_context_capsule, write_context_capsule_atomic
 from .doctor import run_doctor
+from .evidence_cache import detect_runtime_identity
 from .gate_runner import invalidate_stale_evidence, resolve_required_gates, run_gate
+from .gate_summary import GateSummary, write_gate_summary_atomic
+from .github_evidence import (GitHubEvidenceError, import_github_evidence,
+                              verify_github_attestation)
 from .generated_verifier import generated_binding_is_current, verify_generated_outputs
 from .git_guard import assert_worktree_isolated, capture_snapshot, changed_paths, classify_paths, validate_resume
-from .state import (AttemptState, GateStatus, RunState, RunStatus,
+from .state import (AttemptState, GateEvidence, GateStatus, RunState, RunStatus,
                     append_event, load_state, read_events, save_state_atomic,
                     sha256_file, transition)
 
@@ -416,6 +421,7 @@ class RunService:
         relative = directory.relative_to(self.repo)
         products = ("", "state.json", "events.jsonl", "codex/", "codex/probe.jsonl", "codex/probe.jsonl.stderr.log", "evidence/", "evidence/probe/stdout.log",
                     "evidence/probe/stderr.log", "evidence/probe/metadata.json",
+                    "evidence/probe/summary.json",
                     "diagnostics.md", "terminal-history.md", "terminal-state.json", "terminal-intent.json")
         arguments = []
         for name in products:
@@ -1012,7 +1018,13 @@ class RunService:
         stamp = self._workspace_stamp(state)
         for definition in definitions:
             self._assert_raw_storage(run_id)
-            evidence = run_gate(self.repo, definition, self._directory(run_id) / "evidence", state.head_commit)
+            try:
+                runtime_identity = detect_runtime_identity(self.repo, definition)
+            except (OSError, ValueError):
+                runtime_identity = None
+            evidence = run_gate(
+                self.repo, definition, self._directory(run_id) / "evidence",
+                state.head_commit, runtime_identity=runtime_identity)
             state = self._save(replace(state, gates={**state.gates, definition.id: evidence}, updated_at=_now()), "gate_finished", {"gateId": definition.id, "status": evidence.status.value})
         if capture_snapshot(self.repo) != initial or self._workspace_stamp(state) != stamp:
             self._stop(state, "Gate 执行期间 Git 状态发生变化", 5)
@@ -1022,15 +1034,114 @@ class RunService:
             raise ServiceError("质量门未通过", 4)
         return state
 
+    def import_github_gate(self, run_id: str, artifact_path: Path, *,
+                           artifact_sha256: str, workflow: str, job: str,
+                           gate_id: str) -> RunState:
+        state = self._load(run_id)
+        self._operable(state)
+        matrix, _ = self._configs()
+        definitions = {definition.id: definition for definition in matrix.gates}
+        if gate_id not in definitions:
+            raise ServiceError("GitHub Gate 未在质量矩阵登记", 3)
+        try:
+            host = json.loads(self._path(Path("docs/agent/HARNESS_HOST.json"))
+                              .read_text(encoding="utf-8"))
+            repository = host["expectedRepository"]
+            signer_workflow = host["repositoryAttestation"]["signerWorkflow"]
+            if (not isinstance(repository, str) or not isinstance(signer_workflow, str)
+                    or workflow != signer_workflow):
+                raise ValueError()
+            attestation = verify_github_attestation(
+                artifact_path, repository=repository,
+                signer_workflow=signer_workflow)
+            summary = import_github_evidence(
+                artifact_path, expected_artifact_sha256=artifact_sha256,
+                repository=repository, workflow=workflow,
+                commit_sha=state.head_commit, job=job, gate_id=gate_id,
+                attestation=attestation)
+        except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError,
+                GitHubEvidenceError):
+            raise ServiceError("GitHub Gate 证据不可信或不匹配", 4) from None
+        directory = self._directory(run_id) / "evidence" / gate_id / "github"
+        directory.mkdir(parents=True, exist_ok=True)
+        summary_path = directory / "summary.json"
+        write_gate_summary_atomic(summary_path, summary)
+        relative = summary_path.relative_to(self.repo)
+        persisted_digest = sha256_file(summary_path)
+        now = _now()
+        evidence = GateEvidence(
+            gate_id, GateStatus(summary.status), summary.exit_code, now, now,
+            relative, state.head_commit, relative, persisted_digest,
+            "github", False,
+            len(summary.diagnostic.encode("utf-8")) if summary.diagnostic else 0,
+        )
+        if state.status == RunStatus.PLANNED:
+            state = transition(state, RunStatus.ACTIVE, "GitHub gate evidence imported")
+        if state.status != RunStatus.VERIFYING:
+            state = transition(state, RunStatus.VERIFYING, "verification started")
+        state = self._decision(state, "github_artifact", json.dumps({
+            "repository": repository, "workflow": workflow, "job": job,
+            "artifactSha256": artifact_sha256,
+        }, sort_keys=True))
+        state = self._save(replace(state, gates={**state.gates, gate_id: evidence},
+                                   updated_at=now), "github_gate_imported",
+                           {"gateId": gate_id, "status": summary.status})
+        if evidence.status != GateStatus.PASSED:
+            self._save(transition(state, RunStatus.REPAIRING,
+                                  "GitHub gate failure"), "gate_failed")
+            raise ServiceError("质量门未通过", 4)
+        return state
+
     def _verify_evidence(self, state, definition):
         gate = state.gates.get(definition.id)
         if (gate is None or gate.status != GateStatus.PASSED or gate.exit_code != 0
-                or gate.head_commit != state.head_commit or gate.evidence_path is None):
+                or gate.head_commit != state.head_commit or gate.evidence_path is None
+                or gate.summary_path is None):
             raise ServiceError("必需 Gate 缺少当前 HEAD 的成功证据", 4)
         path = self._path(gate.evidence_path)
-        if not path.is_relative_to(self._directory(state.run_id) / "evidence"):
-            raise ServiceError("Gate 证据不属于当前运行", 4)
+        summary_path = self._path(gate.summary_path)
         try:
+            summary_document = json.loads(summary_path.read_text(encoding="utf-8"))
+            GateSummary(
+                summary_document["schemaVersion"], summary_document["gateId"],
+                summary_document["status"], summary_document["exitCode"],
+                summary_document["durationMs"], summary_document["counts"],
+                summary_document["evidenceKey"], summary_document["headCommit"],
+                summary_document["diagnostic"], summary_document["source"],
+                summary_document["reused"],
+            )
+            if (summary_document["gateId"] != definition.id
+                    or summary_document["status"] != "passed"
+                    or summary_document["exitCode"] != 0
+                    or summary_document["headCommit"] != state.head_commit
+                    or summary_document["diagnostic"] is not None):
+                raise ValueError()
+            if gate.reused:
+                cache_root = self.repo / "var/agent-harness/cache/evidence"
+                if (gate.source != "reused" or gate.evidence_key is None
+                        or not path.is_relative_to(cache_root)
+                        or not summary_path.is_relative_to(cache_root)
+                        or summary_document["source"] != "reused"
+                        or summary_document["reused"] is not True
+                        or summary_document["evidenceKey"] != gate.evidence_key):
+                    raise ValueError()
+                return
+            if gate.source == "github":
+                if (gate.reused or not path.is_relative_to(
+                        self._directory(state.run_id) / "evidence")
+                        or summary_path != path
+                        or gate.evidence_key is None
+                        or sha256_file(summary_path) != gate.evidence_key
+                        or summary_document["source"] != "github"
+                        or summary_document["reused"] is not False):
+                    raise ValueError()
+                return
+            if (gate.source != "local" or not path.is_relative_to(
+                    self._directory(state.run_id) / "evidence")
+                    or summary_path.parent != path.parent
+                    or summary_document["source"] != "local"
+                    or summary_document["reused"] is not False):
+                raise ValueError()
             metadata = json.loads(path.read_text(encoding="utf-8"))
             for name in ("stdout.log", "stderr.log"):
                 if not self._path(path.parent.relative_to(self.repo) / name).is_file():
@@ -1206,15 +1317,20 @@ class RunService:
                 self._atomic_text(schema, Path(__file__).with_name("codex_response.schema.json").read_text(encoding="utf-8"))
                 if state.status == RunStatus.REPAIRING and not failure_summary:
                     _, failure_summary = self._autonomous_failure(state)
-                prompt = json.dumps({"milestone": state.milestone_id, "title": state.milestone_title,
-                                     "acceptanceAndTask": redact_text(self._autonomous_milestone(state))[:6144],
-                                     "approvedPaths": scope, "failure": failure_summary,
-                                     "remainingFailures": 5 - state.attempts.total,
-                                     "runId": run_id, "headCommit": state.head_commit,
-                                     "instruction": "Only edit approved paths. Run no external actions. Commit scoped changes with Agent-Run-Id trailer. Request human review when required. Harness runs Gates and decides completion."},
-                                    ensure_ascii=True)
+                task = json.dumps({
+                    "acceptanceAndTask": redact_text(self._autonomous_milestone(state)),
+                    "approvedPaths": scope,
+                    "instruction": "Only edit approved paths. Run no external actions. Commit scoped changes with Agent-Run-Id trailer. Request human review when required. Harness runs Gates and decides completion.",
+                }, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+                capsule = build_context_capsule(
+                    self.repo, state, task, failure_summary or None
+                )
+                write_context_capsule_atomic(
+                    directory / ("capsule-" + capsule.capsule_digest + ".json"), capsule
+                )
                 sessions = [d["summary"] for d in state.decisions if d["type"] == "codex_session"]
-                command = build_codex_command(self.repo, schema, prompt, sessions[-1] if sessions else None)
+                command = build_codex_command(self.repo, schema, capsule,
+                                              sessions[-1] if sessions else None)
                 state_digest = sha256_file(self._directory(run_id) / "state.json")
                 result = run_codex(command, 900, directory / (uuid4().hex + ".jsonl"))
                 if sha256_file(self._directory(run_id) / "state.json") != state_digest:

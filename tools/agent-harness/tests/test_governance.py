@@ -60,6 +60,20 @@ class GovernanceWorkflowTests(unittest.TestCase):
         self.assertNotIn("continue-on-error", self.text)
         self.assertNotRegex(self.text, r"gh attestation verify[^\n]*\|\|\s*true")
 
+    def test_main_ci_emits_attests_and_uploads_a_sanitized_gate_summary(self):
+        emitter = self.text.index("agent_harness.github_evidence")
+        attestation = self.text.index(
+            "subject-path: gate-summaries/control-plane-ci.json"
+        )
+        upload = self.text.index("actions/upload-artifact@")
+
+        self.assertLess(emitter, attestation)
+        self.assertLess(attestation, upload)
+        self.assertIn("--workflow .github/workflows/ci.yml", self.text)
+        self.assertIn("--job attest-exact-head", self.text)
+        self.assertIn("--gate-id control-plane-ci", self.text)
+        self.assertIn("if-no-files-found: error", self.text)
+
     def test_workflow_attests_each_successful_main_push_without_manifest_state_gate(self):
         attestation_job = self.text.split("  attest-exact-head:", 1)[1]
         self.assertIn("if: github.event_name == 'push' && github.ref == 'refs/heads/main'",

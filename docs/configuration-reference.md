@@ -2,7 +2,7 @@
 
 ## 通用规则
 
-`GATE_MATRIX.yaml` 与 `PROTECTED_PATHS.yaml` 使用 YAML 1.2 的 JSON 子集，并由 Python `json` 模块解析。必须使用双引号、显式数组和对象；不支持注释、锚点、隐式类型或重复 key。当前配置版本均为 `1`，未知字段拒绝。
+`GATE_MATRIX.yaml` 与 `PROTECTED_PATHS.yaml` 使用 YAML 1.2 的 JSON 子集，并由 Python `json` 模块解析。必须使用双引号、显式数组和对象；不支持注释、锚点、隐式类型或重复 key。Gate Matrix 支持版本 `1` 与 `2`，保护路径当前为版本 `1`；未知字段拒绝。
 
 所有路径均使用仓库相对 POSIX 形式，不允许绝对路径、反斜杠或 `..`。运行状态中的 `worktreePath` 是唯一需要记录绝对路径的字段，由运行时生成，不应手工写进模板。
 
@@ -10,11 +10,20 @@
 
 顶层字段：
 
-- `version`：固定为 `1`。
+- `version`：`1` 使用安全兼容默认值；`2` 要求每个 Gate 显式声明执行与复用元数据。
 - `gates`：至少一个 Gate。
 - `profiles`：至少一个路径 profile。
 
-Gate 字段：`id`、`command`、`cwd`、`timeout_seconds`。`id` 使用小写连字符格式；命令是非空字符串数组。
+版本 1 Gate 字段：`id`、`command`、`cwd`、`timeout_seconds`。其默认执行层为 `local_integration`、复用策略为 `head`、输入为仓库根、摘要格式为 `generic`。
+
+版本 2 还必须声明：
+
+- `execution_tier`：`local_fast`、`local_integration`、`github_full` 或 `production_strict`。
+- `reuse_policy`：`content`、`head` 或 `never`。
+- `input_patterns`：至少一个仓库相对 glob，参与 EvidenceKey 输入摘要。
+- `summary_format`：`unittest`、`vitest`、`maven`、`playwright` 或 `generic`。
+
+`id` 使用小写连字符格式；命令是非空字符串数组。生产、安全、发布和迁移 Gate 应使用 `head` 或 `never`，不能用 `content` 降低验收边界。
 
 Profile 字段：`paths` 与 `gates`。引用的 Gate ID 必须存在且不得重复。
 
@@ -78,6 +87,15 @@ evidence。当前 schema 使用固定 120 秒生成超时，不提供运行时�
 - `planPath`、`changedPaths` 与 `evidencePath` 为仓库相对路径。
 - Gate `passed` 必须同时有退出码 0、起止时间和证据路径。
 - 状态结构合法不代表转换合法；转换、HEAD 和必需 Gate 一致性由运行层继续检查。
+
+版本 2 Gate evidence 额外记录 `summaryPath`、`evidenceKey`、`source`、`reused` 与 `diagnosticBytes`。版本 1 状态可读，后续写入规范化为版本 2。
+
+## 摘要、胶囊、遥测与投影
+
+- `GATE_SUMMARY_SCHEMA.json`：固定成功/失败摘要，禁止原始日志字段。
+- `CONTEXT_CAPSULE_SCHEMA.json`：稳定前缀、任务增量、来源摘要与总字节预算。
+- `TOKEN_REPORT_SCHEMA.json`：只允许内容无关的数值聚合，并单列 reviewer 用量。
+- `MEMORY_PROJECTIONS.json`：声明 Vault 相对 note、唯一 marker 与 projection ID；绝对路径只保存在 ignored 的本机配置中。
 
 ## PROJECT_MEMORY.md 与 AUTONOMY.md
 

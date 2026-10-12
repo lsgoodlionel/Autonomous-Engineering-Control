@@ -30,6 +30,14 @@ class WorktreeCase(unittest.TestCase):
         self.git("config", "user.name", "Harness Test", repo=self.primary)
         self.git("config", "commit.gpgsign", "false", repo=self.primary)
         self.write(self.primary / ".gitignore", "/var/agent-harness/\n")
+        self.write(self.primary / "AGENTS.md",
+                   "# Rules\n\n## 实现与验证\nRun bound Gates.\n\n"
+                   "## 安全与停止\nPause on drift.\n")
+        self.write(self.primary / "docs/agent/AUTONOMY.md",
+                   "# Autonomy\n\n## 人工升级\nEscalate repeated failures.\n")
+        self.write(self.primary / "docs/agent/PROJECT_MEMORY.md",
+                   "# Memory\n\n## 身份与权威入口\nRepository state is authoritative.\n\n"
+                   "## 维护决策\nKeep project facts current.\n")
         self.plan = Path("docs/superpowers/plans/approved.md")
         self.write(self.primary / self.plan,
                    "# Plan\n\n**Status:** approved\n\n"

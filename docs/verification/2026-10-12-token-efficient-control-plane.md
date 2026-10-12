@@ -57,6 +57,11 @@ quarantine/private entries，卸载再保留 28 个 quarantine entries。宿主�
 `var/agent-harness/`、`.agent-harness-backups/`、`**/.*.agent-harness-temporary-*` 和
 `**/.*.agent-harness-quarantine-*`，否则生命周期操作会使工作区显示未跟踪文件。
 
+真实 Node Gate 依靠退出码正确判定通过，但 Gate Summary 的保守计数器没有识别 Node 24 `node --test`
+输出，记录为 `total=0`、`passed=0`，而独立命令的实际结果是 42/42。`doctor` 的受控 PATH 也没有发现
+NVM Node，因此即使 Gate 使用已审核绝对路径成功执行，环境报告仍保留 `node` optional warning。这两项不改变
+本次质量结论，但需要在后续版本改善遥测精度和 Node runtime discovery。
+
 ## Token 观察分类
 
 | 分类 | 观测 | 可作出的结论 |

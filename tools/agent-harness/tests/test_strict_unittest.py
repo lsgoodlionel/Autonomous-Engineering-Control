@@ -4,6 +4,7 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 HARNESS = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(HARNESS))
@@ -12,6 +13,20 @@ from agent_harness.strict_unittest import main  # noqa: E402
 
 
 class StrictUnittestTests(unittest.TestCase):
+    def test_discovery_is_isolated_from_outer_unittest_loader(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            outer = root / "outer"
+            fixture = root / "fixture"
+            outer.mkdir()
+            fixture.mkdir()
+            (fixture / "test_loader_isolation_fixture.py").write_text(
+                "import unittest\n"
+                "class Fixture(unittest.TestCase):\n"
+                "    def test_case(self): self.assertTrue(True)\n", encoding="utf-8")
+            with mock.patch.object(unittest.defaultTestLoader, "_top_level_dir", str(outer)):
+                self.assertEqual(main(["--start", str(fixture)]), 0)
+
     def test_skip_is_failure_and_all_pass_is_success(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

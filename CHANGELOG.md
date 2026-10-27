@@ -16,6 +16,7 @@
 - 状态 wire contract 写入版本 2，同时保留严格版本 1 读取兼容。
 - Gate Matrix 版本 2 支持执行层、复用策略、输入模式和摘要格式；版本 1 保持安全的 HEAD-only 默认值。
 - 成功 Gate 不再向 Agent 暴露 stdout/stderr，失败诊断限制为脱敏有界摘要。
+- strict zero-skip unittest runner 使用独立的 discovery loader，避免继承外层测试运行器的根目录状态。
 
 ### Security
 

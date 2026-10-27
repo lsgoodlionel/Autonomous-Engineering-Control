@@ -19,7 +19,7 @@ def main(argv=None) -> int:
     if any(Path(name).name != name or not name.startswith("test_")
            or not name.endswith(".py") for name in args.exclude_file):
         return 2
-    discovered = unittest.defaultTestLoader.discover(
+    discovered = unittest.TestLoader().discover(
         str(start), pattern=args.pattern, top_level_dir=args.top)
     excluded = set(args.exclude_file)
 
